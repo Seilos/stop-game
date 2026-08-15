@@ -14,6 +14,18 @@ let challengeSecsLeft = 10;
 let lastValidationState = null;
 let currentValidationChallenges = [];
 
+// ── Voice state ──
+const voicePeers   = {};        // peerId -> { pc, stream }
+let   localStream  = null;
+let   micMode      = 'muted';   // 'open' | 'ptt' | 'muted'
+let   hostMuted    = false;
+let   vadTimers    = {};        // peerId -> intervalId
+let   inVoice      = false;
+
+// ── Chat state ──
+let chatOpen      = false;
+let chatUnread    = 0;
+
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const CATEGORIES = [
   { key: 'nombre',   label: 'Nombre' },
@@ -39,12 +51,15 @@ const screens = {
   spectator:        document.getElementById('screen-spectator'),
 };
 
+const GAME_SCREENS = new Set(['room','roulette','game','validation','validationReveal','scores','gameover','spectator']);
+
 function showScreen(name) {
   Object.keys(screens).forEach(key => {
-    if (screens[key]) {
-      screens[key].classList.toggle('active', key === name);
-    }
+    if (screens[key]) screens[key].classList.toggle('active', key === name);
   });
+  // Show comm-bar on any game/room screen
+  const bar = document.getElementById('comm-bar');
+  if (bar) bar.style.display = GAME_SCREENS.has(name) ? 'flex' : 'none';
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -93,6 +108,68 @@ function setupSocketListeners() {
 
   socket.on('disconnect', () => {
     showToast('Desconectado del servidor', 'error');
+    if (inVoice) leaveVoice();
+  });
+
+  // ── Chat listeners ──
+  socket.on('chat_message', ({ senderId, senderName, text }) => {
+    appendChatMessage(senderId, senderName, text);
+    if (!chatOpen) {
+      chatUnread++;
+      const badge = document.getElementById('chat-unread-badge');
+      if (badge) { badge.textContent = chatUnread; badge.style.display = 'inline'; }
+    }
+  });
+
+  // ── Voice listeners ──
+  socket.on('voice_peers', async (peers) => {
+    for (const peerId of peers) await createPeer(peerId, true);
+  });
+
+  socket.on('voice_user_joined', async ({ peerId, name }) => {
+    showToast(`${name} se unió a voz 🎤`, 'info', 2000);
+    await createPeer(peerId, false);
+  });
+
+  socket.on('voice_user_left', ({ peerId }) => {
+    closePeer(peerId);
+  });
+
+  socket.on('voice_members_update', (members) => {
+    renderVoiceParticipants(members);
+  });
+
+  socket.on('voice_signal', async ({ from, signal }) => {
+    if (!voicePeers[from]) await createPeer(from, false);
+    const pc = voicePeers[from]?.pc;
+    if (!pc) return;
+    try {
+      if (signal.offer) {
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('voice_signal', { to: from, signal: { answer } });
+      } else if (signal.answer) {
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
+      } else if (signal.candidate) {
+        await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
+      }
+    } catch(e) { console.warn('voice_signal err', e); }
+  });
+
+  socket.on('host_muted_you', () => {
+    hostMuted = true;
+    applyMicMode('muted');
+    showToast('El anfitrión silenció tu micrófono 🔇', 'warn', 4000);
+    // Disable the open+ptt buttons visually
+    ['btn-mic-open','btn-mic-ptt'].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) { b.disabled = true; b.title = 'Silenciado por el anfitrión'; }
+    });
+  });
+
+  socket.on('player_host_muted', ({ targetId }) => {
+    // Update indicator in voice panel (the members_update will come right after)
   });
 
   socket.on('room_state', (room) => {
@@ -201,22 +278,66 @@ function setupSocketListeners() {
   });
 
   socket.on('category_challenge_resolved', (challenge) => {
-    hideVoteModal();
-    resetChallengedCards();
+    // Show 2-second result banner inside the vote modal before hiding
+    const modal = document.getElementById('vote-modal');
+    const modalVisible = modal && modal.style.display !== 'none';
 
-    // Mark card as invalidated/validated
-    const cards = document.querySelectorAll('.anon-card');
-    cards.forEach(card => {
-      if (card.dataset.targetId === challenge.targetPlayerId) {
-        if (challenge.result === false) {
-          card.classList.add('invalidated');
-        } else {
-          card.classList.add('validated');
+    const applyResolvedChallengeToCards = () => {
+      resetChallengedCards();
+      const cards = document.querySelectorAll('.anon-card');
+      cards.forEach(card => {
+        if (card.dataset.targetId === challenge.targetPlayerId) {
+          if (challenge.result === false) {
+            if (challenge.challengeType === 'DISGUISED') {
+              card.classList.add('downgraded');
+            } else {
+              card.classList.add('invalidated');
+            }
+          } else {
+            card.classList.add('validated');
+          }
         }
-      }
-    });
+      });
 
-    showToast(`Respuesta "${challenge.word}": ${challenge.result ? 'VÁLIDA ✅' : 'INVÁLIDA ❌ (0 pts)'}`, challenge.result ? 'success' : 'error');
+      const toastMsg = challenge.result === true
+        ? `"${challenge.word}" — VÁLIDA ✅`
+        : challenge.challengeType === 'DISGUISED'
+          ? `"${challenge.word}" — Rebajada a 50 pts 🎭`
+          : `"${challenge.word}" — INVÁLIDA ❌ (0 pts)`;
+      showToast(toastMsg, challenge.result ? 'success' : 'warn');
+    };
+
+    if (modalVisible) {
+      // Replace modal content with result banner
+      const isValid = challenge.result === true;
+      const isDisguised = challenge.challengeType === 'DISGUISED';
+      const [icon, label, cls] = isValid
+        ? ['✅', 'PALABRA VÁLIDA', 'success']
+        : isDisguised
+          ? ['🎭', 'REBAJADA A 50 PTS', 'warn']
+          : ['❌', 'PALABRA INVÁLIDA (0 pts)', 'error'];
+
+      document.getElementById('vm-info').innerHTML = `
+        <div class="vote-result-banner ${cls}">
+          <div class="vrb-icon">${icon}</div>
+          <div class="vrb-word">"${escapeHtml(challenge.word)}"</div>
+          <div class="vrb-label">${label}</div>
+        </div>
+      `;
+      document.getElementById('vm-bars').innerHTML = '';
+      document.getElementById('vm-btns').style.display = 'none';
+      document.getElementById('vm-wait').style.display = 'none';
+      document.getElementById('vm-timer').textContent = '';
+      if (challengeVoteTimer) { clearInterval(challengeVoteTimer); challengeVoteTimer = null; }
+
+      setTimeout(() => {
+        hideVoteModal();
+        applyResolvedChallengeToCards();
+      }, 2000);
+    } else {
+      hideVoteModal();
+      applyResolvedChallengeToCards();
+    }
   });
 
   socket.on('validation_reveal_phase', ({ answers, initialScores, finalScores, challenges, players, categories, letter }) => {
@@ -261,13 +382,27 @@ function setupSocketListeners() {
 // ────────────────────────────────────────────────────────────────
 // UI EVENT HANDLERS
 let pendingChallenge = null;
+let selectedChallengeType = null;
 let reasonModalTimer = null;
 let reasonSecsLeft = 10;
 
+const CHALLENGE_TYPE_LABELS = {
+  'INVALID':      '❌ Palabra no existe',
+  'DISGUISED':    '🎭 Repetida disfrazada',
+  'OFF_CATEGORY': '🚫 Fuera de categoría',
+  'NOT_A_NAME':   '👤 Nombre/Apellido inválido',
+};
+
 function openReasonModal(targetPlayerId, targetPlayerName, category, word) {
   pendingChallenge = { targetPlayerId, category, word };
+  selectedChallengeType = null;
   document.getElementById('rm-target-word').innerHTML = `Impugnar <b>"${escapeHtml(word)}"</b> de <b>${escapeHtml(targetPlayerName)}</b>`;
   document.getElementById('inp-custom-reason').value = '';
+
+  // Reset type selection
+  document.querySelectorAll('.ctype-card').forEach(c => c.classList.remove('selected'));
+  const submitBtn = document.getElementById('btn-submit-challenge');
+  if (submitBtn) submitBtn.disabled = true;
 
   socket.emit('intent_challenge_word', { targetPlayerId, category }, (res) => {
     if (res?.error) {
@@ -334,21 +469,25 @@ function setupUIEventListeners() {
     socket.emit('submit_stop');
   });
 
-  // Reason modal actions
-  document.querySelectorAll('.quick-reason-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const reason = e.target.dataset.reason;
-      document.getElementById('inp-custom-reason').value = reason;
+  // Reason modal — challenge type card selection
+  document.querySelectorAll('.ctype-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.ctype-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      selectedChallengeType = card.dataset.type;
+      const submitBtn = document.getElementById('btn-submit-challenge');
+      if (submitBtn) submitBtn.disabled = false;
     });
   });
   document.getElementById('btn-reason-close').addEventListener('click', () => closeReasonModal(true));
   document.getElementById('btn-submit-challenge').addEventListener('click', () => {
-    if (!pendingChallenge) return;
-    const reason = document.getElementById('inp-custom-reason').value.trim() || 'Palabra dudosa';
+    if (!pendingChallenge || !selectedChallengeType) return;
+    const reason = document.getElementById('inp-custom-reason').value.trim() || '';
     const { targetPlayerId, category } = pendingChallenge;
+    const challengeType = selectedChallengeType;
     closeReasonModal(false);
 
-    socket.emit('challenge_word', { targetPlayerId, category, reason }, (res) => {
+    socket.emit('challenge_word', { targetPlayerId, category, reason, challengeType }, (res) => {
       if (res?.error) showToast(res.error, 'warn');
     });
   });
@@ -397,6 +536,51 @@ function setupUIEventListeners() {
 
   document.getElementById('btn-lobby').addEventListener('click', () => {
     socket.emit('return_to_lobby');
+  });
+
+  // ── Comm-bar: Voice ──
+  document.getElementById('btn-join-voice').addEventListener('click', joinVoice);
+  document.getElementById('btn-leave-voice').addEventListener('click', leaveVoice);
+
+  // Mic mode buttons
+  document.querySelectorAll('.mic-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      if (hostMuted && mode !== 'muted') return; // host-muted: can't unmute
+      applyMicMode(mode);
+    });
+  });
+
+  // PTT: push-to-talk (hold)
+  const pttBtn = document.getElementById('btn-mic-ptt');
+  pttBtn.addEventListener('mousedown',  () => { if (micMode === 'ptt') setTrackEnabled(true); });
+  pttBtn.addEventListener('mouseup',    () => { if (micMode === 'ptt') setTrackEnabled(false); });
+  pttBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (micMode === 'ptt') setTrackEnabled(true); });
+  pttBtn.addEventListener('touchend',   (e) => { e.preventDefault(); if (micMode === 'ptt') setTrackEnabled(false); });
+
+  // Global PTT key (Space) when in PTT mode
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && micMode === 'ptt' && document.activeElement.tagName !== 'INPUT') {
+      e.preventDefault();
+      setTrackEnabled(true);
+      pttBtn.classList.add('ptt-active');
+    }
+  });
+  document.addEventListener('keyup', (e) => {
+    if (e.code === 'Space' && micMode === 'ptt') {
+      setTrackEnabled(false);
+      pttBtn.classList.remove('ptt-active');
+    }
+  });
+
+  // ── Comm-bar: Chat ──
+  document.getElementById('btn-toggle-chat').addEventListener('click', toggleChat);
+  document.getElementById('btn-close-chat').addEventListener('click', () => toggleChat(false));
+
+  const chatInput = document.getElementById('inp-chat');
+  document.getElementById('btn-send-chat').addEventListener('click', sendChatMessage);
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
   });
 }
 
@@ -1012,11 +1196,13 @@ function showVoteModal(challenge) {
   const targetPlayer = currentRoom?.players.find(p => p.id === challenge.targetPlayerId);
   const challenger = currentRoom?.players.find(p => p.id === challenge.challengerId);
 
+  const typeLabel = CHALLENGE_TYPE_LABELS[challenge.challengeType] || '⚖️ Impugnación';
+
   document.getElementById('vm-info').innerHTML = `
     <div class="ch-word">"${escapeHtml(challenge.word)}"</div>
-    <div class="ch-reason-badge">Motivo: <b>${escapeHtml(challenge.reason || 'Palabra dudosa')}</b></div>
-    <div class="ch-meta">Categoría: <b>${escapeHtml(challenge.category)}</b></div>
-    <div class="ch-meta">Jugador: <b>${escapeHtml(targetPlayer?.name || '')}</b> | Impugnado por: <b>${escapeHtml(challenger?.name || '')}</b></div>
+    <span class="ctype-badge ${challenge.challengeType}">${typeLabel}</span>
+    ${challenge.reason ? `<div class="ch-reason-badge">💬 <b>${escapeHtml(challenge.reason)}</b></div>` : ''}
+    <div class="ch-meta">Categoría: <b>${escapeHtml(challenge.category)}</b> | Por: <b>${escapeHtml(challenger?.name || '')}</b></div>
   `;
 
   updateVoteModalBars(challenge);
@@ -1112,3 +1298,238 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+// ────────────────────────────────────────────────────────────────
+// VOICE SYSTEM (WebRTC Mesh)
+// ────────────────────────────────────────────────────────────────
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+async function joinVoice() {
+  if (inVoice) return;
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    inVoice = true;
+
+    document.getElementById('voice-idle').style.display   = 'none';
+    document.getElementById('voice-active').style.display = 'flex';
+
+    // Start muted by default
+    applyMicMode('muted');
+
+    socket.emit('voice_join', (res) => {
+      if (res?.error) {
+        showToast('Error al unirse a voz: ' + res.error, 'error');
+        leaveVoice();
+      }
+    });
+  } catch (err) {
+    showToast('No se pudo acceder al micrófono. Revisa los permisos del navegador.', 'error', 5000);
+    console.error('getUserMedia error:', err);
+  }
+}
+
+function leaveVoice() {
+  if (!inVoice) return;
+  inVoice = false;
+  hostMuted = false;
+
+  // Stop all tracks
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+
+  // Close all peer connections
+  Object.keys(voicePeers).forEach(id => closePeer(id));
+
+  socket.emit('voice_leave');
+
+  document.getElementById('voice-idle').style.display   = 'flex';
+  document.getElementById('voice-active').style.display = 'none';
+  document.getElementById('voice-participants').innerHTML = '';
+
+  // Re-enable mic buttons
+  ['btn-mic-open','btn-mic-ptt'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) { b.disabled = false; b.title = ''; }
+  });
+  applyMicMode('muted');
+}
+
+async function createPeer(peerId, isInitiator) {
+  if (voicePeers[peerId]) return; // already exists
+
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  voicePeers[peerId] = { pc };
+
+  // Add local audio tracks
+  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  // ICE candidate handler
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) socket.emit('voice_signal', { to: peerId, signal: { candidate } });
+  };
+
+  // Remote stream handler
+  pc.ontrack = ({ streams }) => {
+    const stream = streams[0];
+    let audio = document.getElementById(`audio-${peerId}`);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.id = `audio-${peerId}`;
+      audio.autoplay = true;
+      audio.playsInline = true;
+      document.getElementById('audio-container').appendChild(audio);
+    }
+    audio.srcObject = stream;
+    startVAD(stream, peerId);
+  };
+
+  if (isInitiator) {
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('voice_signal', { to: peerId, signal: { offer } });
+    } catch(e) { console.warn('createOffer err', e); }
+  }
+
+  return pc;
+}
+
+function closePeer(peerId) {
+  if (vadTimers[peerId]) { clearInterval(vadTimers[peerId]); delete vadTimers[peerId]; }
+  if (voicePeers[peerId]) { voicePeers[peerId].pc.close(); delete voicePeers[peerId]; }
+  const audio = document.getElementById(`audio-${peerId}`);
+  if (audio) audio.remove();
+}
+
+function setTrackEnabled(enabled) {
+  if (!localStream) return;
+  localStream.getAudioTracks().forEach(t => { t.enabled = enabled; });
+}
+
+function applyMicMode(mode) {
+  micMode = mode;
+  if (!localStream) return;
+  if (mode === 'open')  setTrackEnabled(true);
+  if (mode === 'ptt')   setTrackEnabled(false); // track enables only on hold
+  if (mode === 'muted') setTrackEnabled(false);
+
+  // Update active button highlight
+  document.querySelectorAll('.mic-btn').forEach(b => {
+    b.classList.toggle('active-mode', b.dataset.mode === mode);
+  });
+}
+
+// Voice Activity Detection — shows speaking ring around participant avatar
+function startVAD(stream, peerId) {
+  if (vadTimers[peerId]) clearInterval(vadTimers[peerId]);
+  try {
+    const ctx      = new AudioContext();
+    const source   = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+
+    vadTimers[peerId] = setInterval(() => {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      const el  = document.getElementById(`vp-${peerId}`);
+      if (el) el.classList.toggle('speaking', avg > 15);
+    }, 120);
+  } catch(e) { /* AudioContext may be blocked */ }
+}
+
+function renderVoiceParticipants(members) {
+  const container = document.getElementById('voice-participants');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const isHost = currentRoom?.hostId === socket.id;
+
+  members.forEach(({ peerId, name }) => {
+    const isMe = peerId === socket.id;
+    const initials = (name || '?').charAt(0).toUpperCase();
+    const color = playerColor(peerId);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'vp-wrap';
+    wrap.innerHTML = `
+      <div class="vp-avatar" id="vp-${peerId}" style="background:${color}" title="${escapeHtml(name)}${isMe ? ' (Tú)' : ''}">
+        ${initials}
+        ${isMe ? '<span class="vp-me-dot"></span>' : ''}
+      </div>
+      ${isHost && !isMe ? `<button class="vp-mute-btn" data-target="${peerId}" title="Silenciar a ${escapeHtml(name)}">🔇</button>` : ''}
+    `;
+
+    // Host mute button
+    const muteBtn = wrap.querySelector('.vp-mute-btn');
+    if (muteBtn) {
+      muteBtn.addEventListener('click', () => {
+        socket.emit('host_mute_player', { targetId: peerId });
+        showToast(`${name} fue silenciado`, 'warn', 2000);
+      });
+    }
+
+    container.appendChild(wrap);
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
+// CHAT SYSTEM
+// ────────────────────────────────────────────────────────────────
+function toggleChat(force) {
+  const panel = document.getElementById('chat-panel');
+  if (!panel) return;
+  chatOpen = typeof force === 'boolean' ? force : !chatOpen;
+  panel.style.display = chatOpen ? 'flex' : 'none';
+
+  if (chatOpen) {
+    chatUnread = 0;
+    const badge = document.getElementById('chat-unread-badge');
+    if (badge) badge.style.display = 'none';
+    // Scroll to bottom
+    const msgs = document.getElementById('chat-messages');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+    document.getElementById('inp-chat')?.focus();
+  }
+}
+
+function sendChatMessage() {
+  const inp = document.getElementById('inp-chat');
+  if (!inp) return;
+  const text = inp.value.trim();
+  if (!text) return;
+  socket.emit('chat_message', { text });
+  inp.value = '';
+}
+
+function appendChatMessage(senderId, senderName, text) {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+
+  const color = playerColor(senderId);
+  const isMe  = senderId === socket.id;
+
+  const msg = document.createElement('div');
+  msg.className = `chat-msg ${isMe ? 'me' : ''}`;
+  msg.innerHTML = `<span class="chat-nick" style="color:${color}">${escapeHtml(senderName)}</span><span class="chat-colon">:</span> <span class="chat-text">${escapeHtml(text)}</span>`;
+  container.appendChild(msg);
+
+  // Auto-scroll if near bottom
+  const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+  if (distFromBottom < 80) container.scrollTop = container.scrollHeight;
+}
+
+// ────────────────────────────────────────────────────────────────
+// HELPERS
+// ────────────────────────────────────────────────────────────────
+// Generate a stable color from a player ID (for chat nick and voice avatar)
+function playerColor(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  const h = Math.abs(hash) % 360;
+  return `hsl(${h}, 70%, 65%)`;
+}
+

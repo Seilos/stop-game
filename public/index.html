@@ -256,13 +256,46 @@
       <button id="btn-reason-close" class="icon-btn">✕</button>
     </div>
     <p class="sub" id="rm-target-word">Impugnar palabra...</p>
-    <div class="reason-quick-btns">
-      <button class="btn btn-secondary btn-sm quick-reason-btn" data-reason="📌 Palabra no existe">📌 Palabra no existe</button>
-      <button class="btn btn-secondary btn-sm quick-reason-btn" data-reason="⚠️ Disfrazar palabra repetida">⚠️ Disfrazar palabra repetida</button>
+
+    <p class="rm-section-label">Selecciona el tipo de impugnación:</p>
+    <div class="challenge-type-grid" id="challenge-type-grid">
+      <div class="ctype-card" data-type="INVALID">
+        <div class="ctype-icon">❌</div>
+        <div class="ctype-body">
+          <div class="ctype-name">Palabra no existe</div>
+          <div class="ctype-desc">La palabra escrita no es válida en el idioma</div>
+          <div class="ctype-penalty bad">→ 0 pts si se aprueba</div>
+        </div>
+      </div>
+      <div class="ctype-card" data-type="DISGUISED">
+        <div class="ctype-icon">🎭</div>
+        <div class="ctype-body">
+          <div class="ctype-name">Repetida disfrazada</div>
+          <div class="ctype-desc">Escribió la misma palabra que otro con leve variación para evitar el sistema de duplicados</div>
+          <div class="ctype-penalty dup">→ 50 pts si se aprueba (equipara al duplicado)</div>
+        </div>
+      </div>
+      <div class="ctype-card" data-type="OFF_CATEGORY">
+        <div class="ctype-icon">🚫</div>
+        <div class="ctype-body">
+          <div class="ctype-name">Fuera de categoría</div>
+          <div class="ctype-desc">La respuesta no pertenece a esta categoría</div>
+          <div class="ctype-penalty bad">→ 0 pts si se aprueba</div>
+        </div>
+      </div>
+      <div class="ctype-card" data-type="NOT_A_NAME">
+        <div class="ctype-icon">👤</div>
+        <div class="ctype-body">
+          <div class="ctype-name">Nombre/Apellido inválido</div>
+          <div class="ctype-desc">No es un nombre o apellido real reconocible</div>
+          <div class="ctype-penalty bad">→ 0 pts si se aprueba</div>
+        </div>
+      </div>
     </div>
-    <input type="text" id="inp-custom-reason" placeholder="O escribe una observación..." autocomplete="off">
+
+    <input type="text" id="inp-custom-reason" placeholder="Observación adicional (opcional)..." autocomplete="off" maxlength="120">
     <div class="modal-footer-btns">
-      <button id="btn-submit-challenge" class="btn btn-danger btn-lg">Enviar Impugnación</button>
+      <button id="btn-submit-challenge" class="btn btn-danger btn-lg" disabled>Enviar Impugnación</button>
     </div>
   </div>
 </div>
@@ -286,6 +319,46 @@
 
 <!-- ═══════════════ TOASTS ═══════════════ -->
 <div id="toasts" aria-live="polite"></div>
+
+<!-- ═══════════════ COMMUNICATION BAR ═══════════════ -->
+<div id="comm-bar" style="display:none">
+  <!-- Voice section -->
+  <div id="comm-voice">
+    <div id="voice-idle">
+      <button id="btn-join-voice" class="comm-btn" title="Unirse a voz">🎤 Voz</button>
+    </div>
+    <div id="voice-active" style="display:none">
+      <button id="btn-mic-open" class="comm-btn mic-btn" data-mode="open" title="Micrófono abierto">🔊</button>
+      <button id="btn-mic-ptt"  class="comm-btn mic-btn" data-mode="ptt"  title="Pulsar para hablar">👆 PTT</button>
+      <button id="btn-mic-mute" class="comm-btn mic-btn active-mode" data-mode="muted" title="Silenciado">🔇</button>
+      <button id="btn-leave-voice" class="comm-btn danger-btn" title="Salir de voz">📵</button>
+    </div>
+  </div>
+
+  <!-- Voice participants -->
+  <div id="voice-participants"></div>
+
+  <!-- Chat toggle -->
+  <button id="btn-toggle-chat" class="comm-btn chat-btn" title="Chat de texto">
+    💬 <span id="chat-unread-badge" class="unread-badge" style="display:none">0</span>
+  </button>
+</div>
+
+<!-- ═══════════════ CHAT PANEL ═══════════════ -->
+<div id="chat-panel" style="display:none" aria-live="polite">
+  <div class="chat-header">
+    <span>💬 Chat de sala</span>
+    <button id="btn-close-chat" class="icon-btn">✕</button>
+  </div>
+  <div id="chat-messages" class="chat-messages"></div>
+  <div class="chat-input-wrap">
+    <input type="text" id="inp-chat" placeholder="Escribe un mensaje..." maxlength="300" autocomplete="off">
+    <button id="btn-send-chat" class="btn btn-primary btn-sm">↑</button>
+  </div>
+</div>
+
+<!-- Hidden audio elements for voice peers -->
+<div id="audio-container" style="display:none" aria-hidden="true"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>

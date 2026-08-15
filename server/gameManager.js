@@ -224,16 +224,49 @@ function calcInitialScores(room) {
   return scores;
 }
 
+// DISGUISED = 100→50 (equate with duplicate); all others = 0
+function getPenaltyScore(challengeType, currentScore) {
+  if (challengeType === 'DISGUISED') return Math.min(currentScore, 50);
+  return 0; // INVALID, OFF_CATEGORY, NOT_A_NAME, default
+}
+
 function applyChallengesToScores(room) {
   const final = {};
-  room.players.forEach(p => { final[p.id] = { ...room.initialScores[p.id] }; });
+  room.players.forEach(p => { final[p.id] = { ...(room.initialScores[p.id] || {}) }; });
+
   for (const c of Object.values(room.challenges)) {
     if (!c.resolved || c.result !== false) continue;
+
     const s = final[c.targetPlayerId];
-    if (s) { s.total -= (s[c.category] || 0); s[c.category] = 0; }
+    if (!s) continue;
+
+    const oldScore = s[c.category] || 0;
+    const newScore = getPenaltyScore(c.challengeType, oldScore);
+    s.total = Math.max(0, (s.total || 0) - oldScore + newScore);
+    s[c.category] = newScore;
+
+    // Duplicate cascade: if the word is completely invalid (not DISGUISED),
+    // other players who wrote the same normalized word in this category also lose points.
+    // Logic: if word X doesn't exist, then every copy of it is equally invalid.
+    if (c.challengeType !== 'DISGUISED' && newScore === 0) {
+      const challengedNorm = normalize(c.word || '');
+      room.players.forEach(p => {
+        if (p.id === c.targetPlayerId) return; // already handled above
+        const theirWord = normalize(((room.answers[p.id] || {})[c.category] || '').trim());
+        if (theirWord && theirWord === challengedNorm) {
+          const ts = final[p.id];
+          if (ts) {
+            const old = ts[c.category] || 0;
+            ts.total = Math.max(0, (ts.total || 0) - old);
+            ts[c.category] = 0;
+          }
+        }
+      });
+    }
   }
   return final;
 }
+
 
 function updateTotalScores(room, finalScores) {
   room.currentRoundScores = finalScores;
@@ -258,13 +291,17 @@ function leaderboard(room) {
 // CHALLENGES / VOTING
 // ────────────────────────────────────────────────────────────────
 
-function createChallenge(room, challengerId, targetPlayerId, category, reason = '') {
+const VALID_CHALLENGE_TYPES = ['INVALID', 'DISGUISED', 'OFF_CATEGORY', 'NOT_A_NAME'];
+
+function createChallenge(room, challengerId, targetPlayerId, category, reason = '', challengeType = 'INVALID') {
   const id = genId();
   const raw = ((room.answers[targetPlayerId] || {})[category] || '').trim();
-  // Eligible voters: EVERY connected player EXCEPT challenger and EXCEPT target player (owner)
+  // Eligible voters: every connected non-spectator EXCEPT challenger and target (owner)
   const eligible = room.players
-    .filter(p => p.connected && p.id !== challengerId && p.id !== targetPlayerId)
+    .filter(p => p.connected && !p.isSpectator && p.id !== challengerId && p.id !== targetPlayerId)
     .map(p => p.id);
+
+  const safeType = VALID_CHALLENGE_TYPES.includes(challengeType) ? challengeType : 'INVALID';
 
   const challenge = {
     id,
@@ -273,7 +310,8 @@ function createChallenge(room, challengerId, targetPlayerId, category, reason = 
     category,
     word: raw,
     reason: (reason || '').trim().substring(0, 120),
-    votes: { [challengerId]: false }, // Challenger automatically votes false (invalid)
+    challengeType: safeType,
+    votes: { [challengerId]: false }, // challenger auto-votes invalid
     eligibleVoters: eligible,
     resolved: false,
     result: null,
@@ -358,6 +396,7 @@ function publicAnonymousChallenge(c, room) {
     category:       c.category,
     word:           c.word,
     reason:         c.reason || 'Palabra dudosa',
+    challengeType:  c.challengeType || 'INVALID',
     votedCount,
     totalVoters,
     resolved:       c.resolved,

@@ -433,7 +433,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Challenge word in category step ──────────────────────
-  socket.on('challenge_word', ({ targetPlayerId, category, reason } = {}, cb) => {
+  socket.on('challenge_word', ({ targetPlayerId, category, reason, challengeType } = {}, cb) => {
     const player = players.get(socket.id);
     if (!player?.roomId) return;
     const room = gm.getRoom(player.roomId);
@@ -452,7 +452,7 @@ io.on('connection', (socket) => {
     clearCategoryTimers(room);
     room.categoryState = 'voting';
 
-    const challenge = gm.createChallenge(room, socket.id, targetPlayerId, category, reason);
+    const challenge = gm.createChallenge(room, socket.id, targetPlayerId, category, reason, challengeType);
     room.activeChallenge = challenge;
 
     broadcast(room, 'category_challenge_started', gm.publicAnonymousChallenge(challenge, room));
@@ -580,16 +580,101 @@ io.on('connection', (socket) => {
     cb?.({ ok: true });
   });
 
+  // ── TEXT CHAT ────────────────────────────────────────────
+  socket.on('chat_message', ({ text } = {}) => {
+    const player = players.get(socket.id);
+    if (!player?.roomId) return;
+    const room = gm.getRoom(player.roomId);
+    if (!room) return;
+    const safeText = String(text || '').trim().substring(0, 300);
+    if (!safeText) return;
+    broadcast(room, 'chat_message', {
+      senderId:   socket.id,
+      senderName: player.name,
+      text:       safeText,
+      ts:         Date.now(),
+    });
+  });
+
+  // ── VOICE SIGNALING (WebRTC mesh) ───────────────────────
+  socket.on('voice_join', (cb) => {
+    const player = players.get(socket.id);
+    if (!player?.roomId) return cb?.({ error: 'Sin sala' });
+    const room = gm.getRoom(player.roomId);
+    if (!room) return cb?.({ error: 'Sala no encontrada' });
+
+    if (!room.voiceMembers) room.voiceMembers = new Set();
+    const existing = [...room.voiceMembers];
+    room.voiceMembers.add(socket.id);
+
+    // Tell the new member who is already in voice
+    socket.emit('voice_peers', existing);
+
+    // Notify existing members that a new peer joined
+    existing.forEach(peerId => {
+      const peer = io.sockets.sockets.get(peerId);
+      if (peer) peer.emit('voice_user_joined', { peerId: socket.id, name: player.name });
+    });
+
+    // Broadcast updated member list info to everyone in room
+    broadcast(room, 'voice_members_update', voiceMembersList(room));
+    cb?.({ ok: true });
+  });
+
+  socket.on('voice_leave', () => {
+    leaveVoice(socket, players, io);
+  });
+
+  // Relay WebRTC signaling messages (offer / answer / ICE)
+  socket.on('voice_signal', ({ to, signal } = {}) => {
+    const targetSocket = io.sockets.sockets.get(to);
+    if (targetSocket) targetSocket.emit('voice_signal', { from: socket.id, signal });
+  });
+
+  // Host can mute any player's mic (cannot force-unmute)
+  socket.on('host_mute_player', ({ targetId } = {}) => {
+    const player = players.get(socket.id);
+    if (!player?.roomId) return;
+    const room = gm.getRoom(player.roomId);
+    if (!room || room.hostId !== socket.id) return;
+    const targetSocket = io.sockets.sockets.get(targetId);
+    if (targetSocket) targetSocket.emit('host_muted_you');
+    // Broadcast so everyone sees the muted indicator
+    broadcast(room, 'player_host_muted', { targetId });
+  });
+
   // ── Disconnect ──────────────────────────────────────────
   socket.on('disconnect', () => {
     console.log(`[-] ${socket.id}`);
     const player = players.get(socket.id);
     if (player?.roomId) {
       const room = gm.getRoom(player.roomId);
-      if (room) handleDisconnect(room, socket.id, player.name);
+      if (room) {
+        handleDisconnect(room, socket.id, player.name);
+        leaveVoice(socket, players, io);
+      }
     }
     players.delete(socket.id);
   });
 });
 
+function leaveVoice(socket, players, io) {
+  const player = players.get(socket.id);
+  if (!player?.roomId) return;
+  const room = gm.getRoom(player.roomId);
+  if (!room?.voiceMembers) return;
+  room.voiceMembers.delete(socket.id);
+  broadcast(room, 'voice_user_left', { peerId: socket.id });
+  broadcast(room, 'voice_members_update', voiceMembersList(room));
+}
+
+function voiceMembersList(room) {
+  if (!room.voiceMembers) return [];
+  return [...room.voiceMembers].map(id => {
+    const p = room.players.find(pl => pl.id === id);
+    return { peerId: id, name: p?.name || 'Jugador' };
+  });
+}
+
 server.listen(PORT, () => console.log(`\uD83C\uDFAE Stop! server -> http://localhost:${PORT}`));
+
