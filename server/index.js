@@ -151,7 +151,25 @@ function startCategoryStep(room, categoryIndex) {
 
 function clearCategoryTimers(room) {
   if (room.categoryTimerRef) { clearInterval(room.categoryTimerRef); room.categoryTimerRef = null; }
+  if (room.intentTimerRef)   { clearTimeout(room.intentTimerRef);   room.intentTimerRef = null; }
   if (room.voteTimerRef)     { clearTimeout(room.voteTimerRef);     room.voteTimerRef = null; }
+}
+
+function resumeCategoryTimer(room) {
+  if (room.intentTimerRef) { clearTimeout(room.intentTimerRef); room.intentTimerRef = null; }
+  room.categoryState = 'reading';
+  broadcast(room, 'category_timer_resumed', { secondsLeft: room.categorySecondsLeft });
+
+  if (room.categoryTimerRef) clearInterval(room.categoryTimerRef);
+  room.categoryTimerRef = setInterval(() => {
+    room.categorySecondsLeft--;
+    broadcast(room, 'category_timer_tick', room.categorySecondsLeft);
+
+    if (room.categorySecondsLeft <= 0) {
+      clearCategoryTimers(room);
+      startCategoryStep(room, room.currentCategoryIndex + 1);
+    }
+  }, 1000);
 }
 
 function onCategoryChallengeResolved(room, challenge) {
@@ -159,9 +177,9 @@ function onCategoryChallengeResolved(room, challenge) {
   broadcast(room, 'category_challenge_resolved', gm.publicAnonymousChallenge(challenge, room));
 
   setTimeout(() => {
-    // Advance to next category after voting finishes
+    // Advance to next category after exactly 2 seconds
     startCategoryStep(room, room.currentCategoryIndex + 1);
-  }, 1200);
+  }, 2000);
 }
 
 function showFinalRevealGrid(room) {
@@ -378,12 +396,55 @@ io.on('connection', (socket) => {
     if (room.answersReceived >= room.answersExpected) proceedToValidation(room);
   });
 
+  // ── Intent challenge (pause timer while choosing reason) ────
+  socket.on('intent_challenge_word', ({ targetPlayerId, category } = {}, cb) => {
+    const player = players.get(socket.id);
+    if (!player?.roomId) return;
+    const room = gm.getRoom(player.roomId);
+    if (!room || room.state !== 'validating' || room.categoryState !== 'reading') return;
+    if (socket.id === targetPlayerId) return;
+
+    const word = ((room.answers[targetPlayerId] || {})[category] || '').trim();
+    if (!word) return cb?.({ error: 'Respuesta vacía.' });
+
+    const alreadyChallenged = Object.values(room.challenges).some(
+      c => c.targetPlayerId === targetPlayerId && c.category === category
+    );
+    if (alreadyChallenged) return cb?.({ error: 'Esta respuesta ya fue votada.' });
+
+    // Pause category timer
+    room.categoryState = 'selecting_reason';
+    if (room.categoryTimerRef) { clearInterval(room.categoryTimerRef); room.categoryTimerRef = null; }
+
+    broadcast(room, 'category_timer_paused', { challengerId: socket.id });
+
+    // 10-second timeout to choose reason
+    if (room.intentTimerRef) clearTimeout(room.intentTimerRef);
+    room.intentTimerRef = setTimeout(() => {
+      if (room.state === 'validating' && room.categoryState === 'selecting_reason') {
+        resumeCategoryTimer(room);
+      }
+    }, 10000);
+
+    cb?.({ ok: true, duration: 10 });
+  });
+
+  // ── Cancel intent challenge ─────────────────────────────
+  socket.on('cancel_intent_challenge', () => {
+    const player = players.get(socket.id);
+    if (!player?.roomId) return;
+    const room = gm.getRoom(player.roomId);
+    if (!room || room.state !== 'validating' || room.categoryState !== 'selecting_reason') return;
+    resumeCategoryTimer(room);
+  });
+
   // ── Challenge word in category step ──────────────────────
   socket.on('challenge_word', ({ targetPlayerId, category, reason } = {}, cb) => {
     const player = players.get(socket.id);
     if (!player?.roomId) return;
     const room = gm.getRoom(player.roomId);
-    if (!room || room.state !== 'validating' || room.categoryState !== 'reading') return;
+    if (!room || room.state !== 'validating') return;
+    if (room.categoryState !== 'reading' && room.categoryState !== 'selecting_reason') return;
     if (socket.id === targetPlayerId) return;
 
     const word = ((room.answers[targetPlayerId] || {})[category] || '').trim();
@@ -411,10 +472,6 @@ io.on('connection', (socket) => {
     }, 10000);
 
     cb?.({ ok: true, challengeId: challenge.id });
-
-    if (!room.activeChallengeId) {
-      processNextChallenge(room);
-    }
   });
 
   // ── Vote on challenge ───────────────────────────────────

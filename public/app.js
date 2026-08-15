@@ -254,16 +254,45 @@ function setupSocketListeners() {
 // ────────────────────────────────────────────────────────────────
 // UI EVENT HANDLERS
 let pendingChallenge = null;
+let reasonModalTimer = null;
+let reasonSecsLeft = 10;
 
 function openReasonModal(targetPlayerId, targetPlayerName, category, word) {
   pendingChallenge = { targetPlayerId, category, word };
   document.getElementById('rm-target-word').innerHTML = `Impugnar <b>"${escapeHtml(word)}"</b> de <b>${escapeHtml(targetPlayerName)}</b>`;
   document.getElementById('inp-custom-reason').value = '';
-  document.getElementById('reason-modal').style.display = 'flex';
+
+  socket.emit('intent_challenge_word', { targetPlayerId, category }, (res) => {
+    if (res?.error) {
+      showToast(res.error, 'warn');
+      pendingChallenge = null;
+      return;
+    }
+
+    document.getElementById('reason-modal').style.display = 'flex';
+
+    reasonSecsLeft = 10;
+    const timerEl = document.getElementById('rm-timer');
+    if (timerEl) timerEl.textContent = `${reasonSecsLeft}s`;
+    if (reasonModalTimer) clearInterval(reasonModalTimer);
+
+    reasonModalTimer = setInterval(() => {
+      reasonSecsLeft--;
+      if (timerEl) timerEl.textContent = `${reasonSecsLeft}s`;
+      if (reasonSecsLeft <= 0) {
+        showToast('Tiempo agotado para ingresar el motivo', 'warn');
+        closeReasonModal(true);
+      }
+    }, 1000);
+  });
 }
 
-function closeReasonModal() {
+function closeReasonModal(emitCancel = true) {
+  if (reasonModalTimer) { clearInterval(reasonModalTimer); reasonModalTimer = null; }
   document.getElementById('reason-modal').style.display = 'none';
+  if (emitCancel && pendingChallenge) {
+    socket.emit('cancel_intent_challenge');
+  }
   pendingChallenge = null;
 }
 
@@ -305,12 +334,12 @@ function setupUIEventListeners() {
       document.getElementById('inp-custom-reason').value = reason;
     });
   });
-  document.getElementById('btn-reason-close').addEventListener('click', closeReasonModal);
+  document.getElementById('btn-reason-close').addEventListener('click', () => closeReasonModal(true));
   document.getElementById('btn-submit-challenge').addEventListener('click', () => {
     if (!pendingChallenge) return;
     const reason = document.getElementById('inp-custom-reason').value.trim() || 'Palabra dudosa';
     const { targetPlayerId, category } = pendingChallenge;
-    closeReasonModal();
+    closeReasonModal(false);
 
     socket.emit('challenge_word', { targetPlayerId, category, reason }, (res) => {
       if (res?.error) showToast(res.error, 'warn');
@@ -585,20 +614,63 @@ function runRouletteAnimation(targetLetter, round, duration) {
 // ────────────────────────────────────────────────────────────────
 // GAME FORM & TIMER
 // ────────────────────────────────────────────────────────────────
+function checkStopButtonState() {
+  const btnStop = document.getElementById('btn-stop');
+  if (!btnStop) return;
+
+  const allFilled = CATEGORIES.every(cat => {
+    const inp = document.getElementById(`inp-cat-${cat.key}`);
+    return inp && inp.value.trim().length > 0;
+  });
+
+  btnStop.disabled = !allFilled;
+}
+
 function renderCategoryForm() {
   const form = document.getElementById('cat-form');
   if (!form) return;
 
   form.innerHTML = '';
-  CATEGORIES.forEach(cat => {
+  const currentLetter = (currentRoom?.currentLetter || 'A').toUpperCase();
+
+  CATEGORIES.forEach((cat, idx) => {
     const row = document.createElement('div');
     row.className = 'cat-row';
+    const randomName = `stop_field_${Math.random().toString(36).substring(7)}`;
+
     row.innerHTML = `
       <label class="cat-label" for="inp-cat-${cat.key}">${escapeHtml(cat.label)}</label>
-      <input type="text" id="inp-cat-${cat.key}" class="cat-input" data-category="${cat.key}" placeholder="Escribe aquí..." autocomplete="off" autocapitalize="words">
+      <input type="text" id="inp-cat-${cat.key}" class="cat-input" data-category="${cat.key}"
+        name="${randomName}"
+        autocomplete="one-time-code"
+        autocorrect="off"
+        autocapitalize="characters"
+        spellcheck="false"
+        placeholder="${currentLetter}…"
+        maxlength="60">
     `;
+
+    const inp = row.querySelector('.cat-input');
+    inp.addEventListener('input', () => {
+      let val = inp.value;
+      if (val.length > 0) {
+        const firstChar = val[0].toUpperCase();
+        const normFirst = firstChar.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const normTarget = currentLetter.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        if (normFirst !== normTarget) {
+          showToast(`¡Debe comenzar con la letra "${currentLetter}"!`, 'warn', 2000);
+          inp.value = '';
+        }
+      }
+      checkStopButtonState();
+    });
+
     form.appendChild(row);
   });
+
+  // Initial check for stop button state (disabled initially)
+  checkStopButtonState();
 
   // Focus first input
   setTimeout(() => {
