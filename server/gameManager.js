@@ -238,7 +238,7 @@ function leaderboard(room) {
 // CHALLENGES / VOTING
 // ────────────────────────────────────────────────────────────────
 
-function createChallenge(room, challengerId, targetPlayerId, category) {
+function createChallenge(room, challengerId, targetPlayerId, category, reason = '') {
   const id = genId();
   const raw = ((room.answers[targetPlayerId] || {})[category] || '').trim();
   // Eligible voters: EVERY connected player except challenger (who already voted false)
@@ -249,6 +249,7 @@ function createChallenge(room, challengerId, targetPlayerId, category) {
     targetPlayerId,
     category,
     word: raw,
+    reason: (reason || '').trim().substring(0, 120),
     votes: { [challengerId]: false }, // Challenger automatically votes false
     eligibleVoters: eligible,
     resolved: false,
@@ -313,6 +314,7 @@ function publicChallenge(c) {
     targetPlayerId: c.targetPlayerId,
     category:       c.category,
     word:           c.word,
+    reason:         c.reason || 'Palabra dudosa',
     votesFalse:     Object.values(c.votes).filter(v => v === false).length,
     votesTrue:      Object.values(c.votes).filter(v => v === true).length,
     totalEligible:  c.eligibleVoters.length + 1, // total voters including challenger

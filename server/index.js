@@ -355,7 +355,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Challenge word ──────────────────────────────────────
-  socket.on('challenge_word', ({ targetPlayerId, category } = {}, cb) => {
+  socket.on('challenge_word', ({ targetPlayerId, category, reason } = {}, cb) => {
     const player = players.get(socket.id);
     if (!player?.roomId) return;
     const room = gm.getRoom(player.roomId);
@@ -370,7 +370,7 @@ io.on('connection', (socket) => {
     );
     if (alreadyChallenged) return cb?.({ error: 'Esta respuesta ya fue votada y no se puede volver a impugnar.' });
 
-    const challenge = gm.createChallenge(room, socket.id, targetPlayerId, category);
+    const challenge = gm.createChallenge(room, socket.id, targetPlayerId, category, reason);
     if (!room.challengeQueue) room.challengeQueue = [];
     room.challengeQueue.push(challenge);
 

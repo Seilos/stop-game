@@ -489,3 +489,15 @@ input[type="text"]:focus{
   .cat-input{padding:.5rem .6rem;font-size:.9rem}
   .cat-row  {border-radius:6px}
 }
+
+/* ────── REASON MODAL STYLES ────── */
+.reason-quick-btns{display:flex;flex-direction:column;gap:.4rem;margin-top:.2rem}
+.quick-reason-btn{text-align:left;justify-content:flex-start;padding:.5rem .8rem;font-size:.85rem;background:rgba(255,255,255,.05);border:1px solid var(--border)}
+.quick-reason-btn:hover{background:rgba(124,58,237,.2);border-color:var(--primary)}
+.modal-footer-btns{display:flex;margin-top:.5rem}
+.modal-footer-btns .btn{width:100%}
+.ch-reason-badge{
+  background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);
+  color:var(--warn);padding:.35rem .75rem;border-radius:var(--r-s);
+  font-size:.85rem;margin:.25rem 0;
+}

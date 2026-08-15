@@ -1,10 +1,15 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="description" content="STOP! Juego multijugador online. Crea o únete a una sala y compite con amigos.">
   <meta name="theme-color" content="#080818">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="STOP!">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <title>STOP! — Juego Multijugador</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -205,12 +210,31 @@
   </div>
 </div>
 
+<!-- ═══════════════ REASON PROMPT MODAL ═══════════════ -->
+<div id="reason-modal" class="modal" style="display:none" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>⚖️ Motivo de Impugnación</h3>
+      <button id="btn-reason-close" class="icon-btn">✕</button>
+    </div>
+    <p class="sub" id="rm-target-word">Impugnar palabra...</p>
+    <div class="reason-quick-btns">
+      <button class="btn btn-secondary btn-sm quick-reason-btn" data-reason="📌 Palabra no existe">📌 Palabra no existe</button>
+      <button class="btn btn-secondary btn-sm quick-reason-btn" data-reason="⚠️ Disfrazar palabra repetida">⚠️ Disfrazar palabra repetida</button>
+    </div>
+    <input type="text" id="inp-custom-reason" placeholder="O escribe una observación..." autocomplete="off">
+    <div class="modal-footer-btns">
+      <button id="btn-submit-challenge" class="btn btn-danger btn-lg">Enviar Impugnación</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════ VOTE MODAL ═══════════════ -->
 <div id="vote-modal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="vm-title">
   <div class="modal-card">
     <div class="modal-head">
-      <h3 id="vm-title">⚖️ Impugnación</h3>
-      <span class="vm-timer" id="vm-timer">30s</span>
+      <h3 id="vm-title">⚖️ Votación de Respuesta</h3>
+      <span class="vm-timer" id="vm-timer">10s</span>
     </div>
     <div class="challenge-info" id="vm-info"></div>
     <div class="vote-bars" id="vm-bars"></div>

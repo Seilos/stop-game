@@ -71,6 +71,11 @@ window.addEventListener('DOMContentLoaded', () => {
   setupUIEventListeners();
   renderAlphabetGrid();
 
+  // Register Service Worker for PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW error:', err));
+  }
+
   // Check saved name in localStorage
   const savedName = localStorage.getItem('stop_player_name');
   if (savedName) {
@@ -232,7 +237,20 @@ function setupSocketListeners() {
 
 // ────────────────────────────────────────────────────────────────
 // UI EVENT HANDLERS
-// ────────────────────────────────────────────────────────────────
+let pendingChallenge = null;
+
+function openReasonModal(targetPlayerId, targetPlayerName, category, word) {
+  pendingChallenge = { targetPlayerId, category, word };
+  document.getElementById('rm-target-word').innerHTML = `Impugnar <b>"${escapeHtml(word)}"</b> de <b>${escapeHtml(targetPlayerName)}</b>`;
+  document.getElementById('inp-custom-reason').value = '';
+  document.getElementById('reason-modal').style.display = 'flex';
+}
+
+function closeReasonModal() {
+  document.getElementById('reason-modal').style.display = 'none';
+  pendingChallenge = null;
+}
+
 function setupUIEventListeners() {
   // Enter welcome
   document.getElementById('btn-enter').addEventListener('click', handleEnterName);
@@ -262,6 +280,25 @@ function setupUIEventListeners() {
   // Game actions
   document.getElementById('btn-stop').addEventListener('click', () => {
     socket.emit('submit_stop');
+  });
+
+  // Reason modal actions
+  document.querySelectorAll('.quick-reason-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reason = e.target.dataset.reason;
+      document.getElementById('inp-custom-reason').value = reason;
+    });
+  });
+  document.getElementById('btn-reason-close').addEventListener('click', closeReasonModal);
+  document.getElementById('btn-submit-challenge').addEventListener('click', () => {
+    if (!pendingChallenge) return;
+    const reason = document.getElementById('inp-custom-reason').value.trim() || 'Palabra dudosa';
+    const { targetPlayerId, category } = pendingChallenge;
+    closeReasonModal();
+
+    socket.emit('challenge_word', { targetPlayerId, category, reason }, (res) => {
+      if (res?.error) showToast(res.error, 'warn');
+    });
   });
 
   // Validation actions
@@ -672,9 +709,7 @@ function renderValidationGrid(answers, initialScores, players, categories) {
 
       if (!isOwn && word && !ch) {
         cell.addEventListener('click', () => {
-          socket.emit('challenge_word', { targetPlayerId: p.id, category: cat.key }, (res) => {
-            if (res?.error) showToast(res.error, 'warn');
-          });
+          openReasonModal(p.id, p.name, cat.key, word);
         });
       }
 
@@ -728,6 +763,7 @@ function showVoteModal(challenge) {
 
   document.getElementById('vm-info').innerHTML = `
     <div class="ch-word">"${escapeHtml(challenge.word)}"</div>
+    <div class="ch-reason-badge">Motivo: <b>${escapeHtml(challenge.reason || 'Palabra dudosa')}</b></div>
     <div class="ch-meta">Categoría: <b>${escapeHtml(challenge.category)}</b></div>
     <div class="ch-meta">Jugador: <b>${escapeHtml(targetPlayer?.name || '')}</b> | Impugnado por: <b>${escapeHtml(challenger?.name || '')}</b></div>
   `;
