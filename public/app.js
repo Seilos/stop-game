@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 // ────────────────────────────────────────────────────────────────
 // STATE & DOM ELEMENTS
@@ -347,6 +347,14 @@ function updateRoomUI() {
   document.getElementById('ctrl-host-start').style.display = isHost ? 'block' : 'none';
   document.getElementById('ctrl-guest-ready').style.display = !isHost ? 'block' : 'none';
 
+  const myPlayer = currentRoom.players.find(p => p.id === socket.id);
+  const isReady = Boolean(myPlayer?.ready);
+  const btnReady = document.getElementById('btn-ready');
+  if (btnReady) {
+    btnReady.textContent = isReady ? '✅ Listo' : '⏳ Marcar como Listo';
+    btnReady.className = `btn ${isReady ? 'btn-success' : 'btn-secondary'}`;
+  }
+
   renderPlayersList();
   renderSelectedLetters();
   updateAlphaButtons();
@@ -432,13 +440,7 @@ function handleToggleReady() {
   if (!currentRoom) return;
   const myPlayer = currentRoom.players.find(p => p.id === socket.id);
   const nextState = !(myPlayer?.ready);
-  socket.emit('player_ready', nextState, () => {
-    const btn = document.getElementById('btn-ready');
-    if (btn) {
-      btn.textContent = nextState ? '✅ Listo' : '⏳ Marcar como Listo';
-      btn.className = `btn ${nextState ? 'btn-success' : 'btn-secondary'}`;
-    }
-  });
+  socket.emit('player_ready', nextState);
 }
 
 function updateHostStartButton() {

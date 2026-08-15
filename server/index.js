@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const express    = require('express');
 const http       = require('http');
@@ -220,7 +220,8 @@ io.on('connection', (socket) => {
     gm.addPlayer(room, socket.id, player.name);
     player.roomId = room.id;
     socket.join(room.id);
-    socket.to(room.id).emit('player_joined', { id: socket.id, name: player.name, ready: false, connected: true, totalScore: 0 });
+    broadcastState(room);
+    socket.to(room.id).emit('player_joined', { id: socket.id, name: player.name });
     cb({ ok: true, room: gm.publicState(room) });
   });
 
@@ -233,7 +234,7 @@ io.on('connection', (socket) => {
     if (!/^[A-Z]$/.test(letter)) return;
 
     gm.toggleLetter(room, letter);
-    broadcast(room, 'letters_updated', room.selectedLetters);
+    broadcastState(room);
     if (cb) cb({ ok: true });
   });
 
@@ -245,7 +246,7 @@ io.on('connection', (socket) => {
     if (!room || room.state !== 'waiting') return;
 
     gm.setReady(room, socket.id, Boolean(ready));
-    broadcast(room, 'player_ready_changed', { playerId: socket.id, ready: Boolean(ready) });
+    broadcastState(room);
     if (cb) cb({ ok: true });
   });
 
