@@ -9,7 +9,9 @@ let myName = '';
 let currentRoom = null;
 let activeChallenge = null;
 let challengeVoteTimer = null;
-let challengeSecsLeft = 30;
+let challengeSecsLeft = 10;
+let lastValidationState = null;
+let currentValidationChallenges = [];
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const CATEGORIES = [
@@ -155,11 +157,25 @@ function setupSocketListeners() {
 
   // ── VALIDATION PHASE ─────────────────────────────────────
   socket.on('validation_phase', ({ answers, initialScores, players, categories, letter }) => {
+    lastValidationState = { answers, initialScores, players, categories, letter };
+    currentValidationChallenges = [];
     showScreen('validation');
     document.getElementById('val-letter').textContent = letter;
     renderValidationGrid(answers, initialScores, players, categories);
     updateValidationReadyStatus([]);
     hideVoteModal();
+  });
+
+  socket.on('validation_updated', ({ challenges }) => {
+    currentValidationChallenges = challenges || [];
+    if (lastValidationState) {
+      renderValidationGrid(
+        lastValidationState.answers,
+        lastValidationState.initialScores,
+        lastValidationState.players,
+        lastValidationState.categories
+      );
+    }
   });
 
   socket.on('challenge_started', (challenge) => {
@@ -584,8 +600,15 @@ function renderValidationGrid(answers, initialScores, players, categories) {
   const container = document.getElementById('ans-grid');
   if (!container) return;
 
-  const colCount = players.length + 1; // Categories column + player columns
-  container.style.gridTemplateColumns = `125px repeat(${players.length}, minmax(115px, 1fr))`;
+  // Order players so MY column comes FIRST
+  const sortedPlayers = [...players].sort((a, b) => {
+    if (a.id === socket.id) return -1;
+    if (b.id === socket.id) return 1;
+    return 0;
+  });
+
+  const colCount = sortedPlayers.length + 1;
+  container.style.gridTemplateColumns = `125px repeat(${sortedPlayers.length}, minmax(115px, 1fr))`;
   container.innerHTML = '';
 
   // Header row
@@ -594,10 +617,11 @@ function renderValidationGrid(answers, initialScores, players, categories) {
   corner.textContent = 'Categoría';
   container.appendChild(corner);
 
-  players.forEach(p => {
+  sortedPlayers.forEach(p => {
     const gh = document.createElement('div');
-    gh.className = 'gh';
-    gh.textContent = p.name;
+    const isMe = p.id === socket.id;
+    gh.className = `gh ${isMe ? 'gh-me' : ''}`;
+    gh.textContent = isMe ? `${p.name} (Tú)` : p.name;
     container.appendChild(gh);
   });
 
@@ -608,26 +632,45 @@ function renderValidationGrid(answers, initialScores, players, categories) {
     catCell.textContent = cat.label;
     container.appendChild(catCell);
 
-    players.forEach(p => {
+    sortedPlayers.forEach(p => {
       const cell = document.createElement('div');
       const isOwn = p.id === socket.id;
       const word = ((answers[p.id] || {})[cat.key] || '').trim();
       const score = ((initialScores[p.id] || {})[cat.key]) || 0;
 
-      let scoreClass = score === 100 ? 'ok' : (score === 50 ? 'dup' : '');
-      let cellClasses = `gc ${isOwn ? 'own' : 'canch'}`;
+      // Check if this word was challenged
+      const ch = (currentValidationChallenges || []).find(
+        c => c.targetPlayerId === p.id && c.category === cat.key
+      );
 
-      cell.className = cellClasses;
+      let scoreClass = score === 100 ? 'ok' : (score === 50 ? 'dup' : '');
+      let scoreText = word ? `${score} pts` : '0 pts';
+      let cellStatusClass = '';
+
+      if (ch) {
+        if (!ch.resolved) {
+          cellStatusClass = 'challenged';
+          scoreText = '⚖️ En votación';
+        } else if (ch.result === false) {
+          cellStatusClass = 'invalidated';
+          scoreText = '❌ 0 pts';
+        } else if (ch.result === true) {
+          cellStatusClass = 'validated';
+          scoreText = `✅ ${scoreText}`;
+        }
+      }
+
+      cell.className = `gc ${isOwn ? 'own' : (ch ? '' : 'canch')} ${cellStatusClass}`;
       cell.dataset.targetId = p.id;
       cell.dataset.category = cat.key;
       cell.id = `cell-${p.id}-${cat.key}`;
 
       cell.innerHTML = `
         <div class="gc-word">${escapeHtml(word || '—')}</div>
-        <div class="gc-score ${scoreClass}">${word ? `${score} pts` : '0 pts'}</div>
+        <div class="gc-score ${scoreClass}">${scoreText}</div>
       `;
 
-      if (!isOwn && word) {
+      if (!isOwn && word && !ch) {
         cell.addEventListener('click', () => {
           socket.emit('challenge_word', { targetPlayerId: p.id, category: cat.key }, (res) => {
             if (res?.error) showToast(res.error, 'warn');
@@ -699,8 +742,8 @@ function showVoteModal(challenge) {
 
   modal.style.display = 'flex';
 
-  // Timer countdown
-  challengeSecsLeft = 30;
+  // Timer countdown: 10s
+  challengeSecsLeft = 10;
   document.getElementById('vm-timer').textContent = `${challengeSecsLeft}s`;
   if (challengeVoteTimer) clearInterval(challengeVoteTimer);
 

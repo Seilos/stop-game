@@ -87,16 +87,78 @@ function endRound(room, stopperId) {
   room.answerCollectionTimer = setTimeout(() => proceedToValidation(room), 3000);
 }
 
+function resetValidationInactivityTimer(room) {
+  if (room.validationInactivityTimer) {
+    clearTimeout(room.validationInactivityTimer);
+    room.validationInactivityTimer = null;
+  }
+  if (room.state !== 'validating') return;
+  if (room.activeChallengeId || (room.challengeQueue && room.challengeQueue.length > 0)) return;
+
+  room.validationInactivityTimer = setTimeout(() => {
+    if (room.state === 'validating') {
+      gm.resolvePending(room);
+      finalizeValidation(room);
+    }
+  }, gm.VALIDATION_INACTIVITY_SEC * 1000);
+}
+
+function processNextChallenge(room) {
+  if (room.state !== 'validating') return;
+  if (room.activeChallengeId) return;
+  if (!room.challengeQueue || room.challengeQueue.length === 0) {
+    resetValidationInactivityTimer(room);
+    tryFinalizeValidation(room);
+    return;
+  }
+
+  if (room.validationInactivityTimer) {
+    clearTimeout(room.validationInactivityTimer);
+    room.validationInactivityTimer = null;
+  }
+
+  const challenge = room.challengeQueue.shift();
+  room.activeChallengeId = challenge.id;
+
+  challenge.timerRef = setTimeout(() => {
+    if (!challenge.resolved) {
+      gm.resolveChallenge(challenge);
+      onChallengeResolved(room, challenge);
+    }
+  }, gm.VOTE_DURATION_SEC * 1000);
+
+  broadcast(room, 'challenge_started', gm.publicChallenge(challenge));
+}
+
+function onChallengeResolved(room, challenge) {
+  broadcast(room, 'challenge_resolved', gm.publicChallenge(challenge));
+  room.activeChallengeId = null;
+
+  broadcast(room, 'validation_updated', {
+    challenges: Object.values(room.challenges).map(gm.publicChallenge)
+  });
+
+  setTimeout(() => {
+    processNextChallenge(room);
+  }, 1000);
+}
+
 function proceedToValidation(room) {
   if (room.state !== 'collecting') return;
   gm.clearTimers(room);
   room.state = 'validating';
+  room.challengeQueue = [];
+  room.activeChallengeId = null;
 
-  // Fill missing answers with empty strings
+  // Trim whitespace and fill missing answers
   room.players.forEach(p => {
     if (!room.answers[p.id]) {
       room.answers[p.id] = {};
       gm.CATEGORY_KEYS.forEach(cat => { room.answers[p.id][cat] = ''; });
+    } else {
+      gm.CATEGORY_KEYS.forEach(cat => {
+        room.answers[p.id][cat] = (room.answers[p.id][cat] || '').trim();
+      });
     }
   });
 
@@ -109,6 +171,8 @@ function proceedToValidation(room) {
     categories:    gm.CATEGORIES,
     letter:        room.currentLetter,
   });
+
+  resetValidationInactivityTimer(room);
 }
 
 function tryFinalizeValidation(room) {
@@ -299,35 +363,22 @@ io.on('connection', (socket) => {
     if (socket.id === targetPlayerId) return;
 
     const word = ((room.answers[targetPlayerId] || {})[category] || '').trim();
-    if (!word) return cb?.({ error: 'Respuesta vac\u00eda, no se puede impugnar.' });
+    if (!word) return cb?.({ error: 'Respuesta vacía, no se puede impugnar.' });
 
-    const dup = Object.values(room.challenges).some(
-      c => c.targetPlayerId === targetPlayerId && c.category === category && !c.resolved
+    const alreadyChallenged = Object.values(room.challenges).some(
+      c => c.targetPlayerId === targetPlayerId && c.category === category
     );
-    if (dup) return cb?.({ error: 'Ya hay una impugnaci\u00f3n activa para esta respuesta.' });
+    if (alreadyChallenged) return cb?.({ error: 'Esta respuesta ya fue votada y no se puede volver a impugnar.' });
 
     const challenge = gm.createChallenge(room, socket.id, targetPlayerId, category);
-
-    // Check if immediately resolved (e.g. only 2 players)
-    const totalEligible = challenge.eligibleVoters.length;
-    const voted = Object.keys(challenge.votes).length;
-    if (voted >= totalEligible) {
-      gm.resolveChallenge(challenge);
-      broadcast(room, 'challenge_started',  gm.publicChallenge(challenge));
-      broadcast(room, 'challenge_resolved', gm.publicChallenge(challenge));
-      tryFinalizeValidation(room);
-    } else {
-      challenge.timerRef = setTimeout(() => {
-        if (!challenge.resolved) {
-          gm.resolveChallenge(challenge);
-          broadcast(room, 'challenge_resolved', gm.publicChallenge(challenge));
-          tryFinalizeValidation(room);
-        }
-      }, gm.VOTE_DURATION_SEC * 1000);
-      broadcast(room, 'challenge_started', gm.publicChallenge(challenge));
-    }
+    if (!room.challengeQueue) room.challengeQueue = [];
+    room.challengeQueue.push(challenge);
 
     cb?.({ ok: true, challengeId: challenge.id });
+
+    if (!room.activeChallengeId) {
+      processNextChallenge(room);
+    }
   });
 
   // ── Vote on challenge ───────────────────────────────────
@@ -342,8 +393,7 @@ io.on('connection', (socket) => {
 
     broadcast(room, 'challenge_vote_update', gm.publicChallenge(challenge));
     if (challenge.resolved) {
-      broadcast(room, 'challenge_resolved', gm.publicChallenge(challenge));
-      tryFinalizeValidation(room);
+      onChallengeResolved(room, challenge);
     }
     cb?.({ ok: true });
   });

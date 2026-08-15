@@ -13,10 +13,11 @@ const CATEGORIES = [
 ];
 const CATEGORY_KEYS = CATEGORIES.map(c => c.key);
 
-const MAX_PLAYERS        = 10;
-const ROUND_DURATION_SEC = 120;
-const SPIN_DURATION_MS   = 3500;
-const VOTE_DURATION_SEC  = 30;
+const MAX_PLAYERS              = 10;
+const ROUND_DURATION_SEC       = 120;
+const SPIN_DURATION_MS         = 3500;
+const VOTE_DURATION_SEC        = 10;
+const VALIDATION_INACTIVITY_SEC = 30;
 
 const rooms = new Map();
 
@@ -55,7 +56,10 @@ function createRoom(hostId, hostName) {
     answers: {},
     initialScores: {},
     challenges: {},
+    challengeQueue: [],
+    activeChallengeId: null,
     validationReadyPlayers: new Set(),
+    validationInactivityTimer: null,
     roundTimerRef: null,
     timerTickRef: null,
     answerCollectionTimer: null,
@@ -95,9 +99,10 @@ function findRoomOf(playerId) {
 
 function clearTimers(room) {
   if (!room) return;
-  if (room.roundTimerRef)       { clearTimeout(room.roundTimerRef);    room.roundTimerRef = null; }
-  if (room.timerTickRef)        { clearInterval(room.timerTickRef);    room.timerTickRef = null; }
-  if (room.answerCollectionTimer){ clearTimeout(room.answerCollectionTimer); room.answerCollectionTimer = null; }
+  if (room.roundTimerRef)            { clearTimeout(room.roundTimerRef);    room.roundTimerRef = null; }
+  if (room.timerTickRef)             { clearInterval(room.timerTickRef);    room.timerTickRef = null; }
+  if (room.answerCollectionTimer)    { clearTimeout(room.answerCollectionTimer); room.answerCollectionTimer = null; }
+  if (room.validationInactivityTimer){ clearTimeout(room.validationInactivityTimer); room.validationInactivityTimer = null; }
   for (const c of Object.values(room.challenges || {}))
     if (c.timerRef) { clearTimeout(c.timerRef); c.timerRef = null; }
 }
@@ -235,15 +240,16 @@ function leaderboard(room) {
 
 function createChallenge(room, challengerId, targetPlayerId, category) {
   const id = genId();
-  const word = ((room.answers[targetPlayerId] || {})[category] || '').trim();
-  const eligible = room.players.filter(p => p.connected && p.id !== targetPlayerId).map(p => p.id);
+  const raw = ((room.answers[targetPlayerId] || {})[category] || '').trim();
+  // Eligible voters: EVERY connected player except challenger (who already voted false)
+  const eligible = room.players.filter(p => p.connected && p.id !== challengerId).map(p => p.id);
   const challenge = {
     id,
     challengerId,
     targetPlayerId,
     category,
-    word,
-    votes: { [challengerId]: false },
+    word: raw,
+    votes: { [challengerId]: false }, // Challenger automatically votes false
     eligibleVoters: eligible,
     resolved: false,
     result: null,
@@ -264,16 +270,23 @@ function voteOnChallenge(room, challengeId, voterId, vote) {
 
 function _checkMajority(c) {
   if (c.resolved) return;
+  const totalNeeded = c.eligibleVoters.length + 1; // +1 for challenger
+  const votedCount  = Object.keys(c.votes).length;
   const vF = Object.values(c.votes).filter(v => v === false).length;
   const vT = Object.values(c.votes).filter(v => v === true).length;
-  const total = c.eligibleVoters.length;
-  const majority = Math.floor(total / 2) + 1;
-  if (vF >= majority || vT >= majority || Object.keys(c.votes).length >= total)
+  const majority = Math.floor(totalNeeded / 2) + 1;
+
+  if (vF >= majority || vT >= majority || votedCount >= totalNeeded) {
     resolveChallenge(c);
+  }
 }
 
 function resolveChallenge(c) {
   if (c.resolved) return;
+  // Fill non-voted eligible voters with false (timeout / default)
+  c.eligibleVoters.forEach(id => {
+    if (c.votes[id] === undefined) c.votes[id] = false;
+  });
   const vF = Object.values(c.votes).filter(v => v === false).length;
   const vT = Object.values(c.votes).filter(v => v === true).length;
   c.result   = vT >= vF;
@@ -302,7 +315,7 @@ function publicChallenge(c) {
     word:           c.word,
     votesFalse:     Object.values(c.votes).filter(v => v === false).length,
     votesTrue:      Object.values(c.votes).filter(v => v === true).length,
-    totalEligible:  c.eligibleVoters.length,
+    totalEligible:  c.eligibleVoters.length + 1, // total voters including challenger
     voters:         Object.keys(c.votes),
     eligibleVoters: c.eligibleVoters,
     resolved:       c.resolved,
@@ -325,6 +338,8 @@ function resetRoom(room) {
   room.answers         = {};
   room.initialScores   = {};
   room.challenges      = {};
+  room.challengeQueue  = [];
+  room.activeChallengeId = null;
   room.validationReadyPlayers = new Set();
   room.totalScores     = {};
   room.currentRoundScores    = {};
@@ -334,7 +349,7 @@ function resetRoom(room) {
 
 module.exports = {
   CATEGORIES, CATEGORY_KEYS,
-  MAX_PLAYERS, ROUND_DURATION_SEC, SPIN_DURATION_MS, VOTE_DURATION_SEC,
+  MAX_PLAYERS, ROUND_DURATION_SEC, SPIN_DURATION_MS, VOTE_DURATION_SEC, VALIDATION_INACTIVITY_SEC,
   createRoom, addPlayer, markDisconnected,
   getRoom, deleteRoom, findRoomOf, clearTimers,
   publicState, publicChallenge,
