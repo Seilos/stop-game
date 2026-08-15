@@ -36,6 +36,7 @@ const screens = {
   validationReveal: document.getElementById('screen-validation-reveal'),
   scores:           document.getElementById('screen-scores'),
   gameover:         document.getElementById('screen-gameover'),
+  spectator:        document.getElementById('screen-spectator'),
 };
 
 function showScreen(name) {
@@ -353,14 +354,31 @@ function setupUIEventListeners() {
   });
 
   // Validation actions
-  document.getElementById('btn-val-ready').addEventListener('click', () => {
-    socket.emit('validation_ready', (res) => {
-      if (res?.ok) {
-        document.getElementById('btn-val-ready').disabled = true;
-        document.getElementById('btn-val-ready').textContent = '✅ Esperando al resto...';
-      }
+  const btnRevealReady = document.getElementById('btn-reveal-ready');
+  if (btnRevealReady) {
+    btnRevealReady.addEventListener('click', () => {
+      socket.emit('validation_ready', (res) => {
+        if (res?.ok) {
+          btnRevealReady.disabled = true;
+          btnRevealReady.textContent = '✅ Esperando al resto...';
+        }
+      });
     });
-  });
+  }
+
+  const btnRevealAdvance = document.getElementById('btn-reveal-advance');
+  if (btnRevealAdvance) {
+    btnRevealAdvance.addEventListener('click', () => {
+      socket.emit('advance_reveal_phase', (res) => {
+        if (res?.error) showToast(res.error, 'warn');
+      });
+    });
+  }
+
+  const btnSpecLeave = document.getElementById('btn-spec-leave');
+  if (btnSpecLeave) {
+    btnSpecLeave.addEventListener('click', () => location.reload());
+  }
 
   // Vote modal
   document.getElementById('btn-vote-valid').addEventListener('click', () => submitVote(true));
@@ -430,9 +448,31 @@ function handleJoinRoom() {
       return;
     }
     currentRoom = res.room;
-    showScreen('room');
-    updateRoomUI();
+    if (res.isSpectator) {
+      showScreen('spectator');
+      document.getElementById('spec-letter').textContent = res.room.currentLetter || '—';
+      document.getElementById('spec-round').textContent = res.room.currentRound || 1;
+      renderLeaderboard('spec-leaderboard', gmLeaderboardFromRoom(res.room));
+      showToast('Te uniste como Espectador. La partida está en curso.', 'info', 5000);
+    } else {
+      showScreen('room');
+      updateRoomUI();
+    }
   });
+}
+
+function gmLeaderboardFromRoom(room) {
+  return (room.players || [])
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      connected: p.connected,
+      isKicked: p.isKicked,
+      isSpectator: p.isSpectator,
+      totalScore: room.totalScores?.[p.id] || 0,
+      roundScore: (room.currentRoundScores?.[p.id]?.total) || 0,
+    }))
+    .sort((a, b) => b.totalScore - a.totalScore);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -769,9 +809,14 @@ function renderAnonymousCategoryStep(data) {
       ? '👤 Tu respuesta'
       : (card.hasWord && card.word !== '—' ? 'Respuesta enviada' : 'Sin respuesta');
 
+    const score = card.initialScore !== undefined ? card.initialScore : 0;
+    const scoreBadgeClass = score === 100 ? 'ok' : (score === 50 ? 'dup' : 'bad');
+    const scoreLabel = card.hasWord && card.word !== '—' ? `${score} pts` : '0 pts';
+
     cardEl.innerHTML = `
       <div class="ac-word">${escapeHtml(card.word)}</div>
       <div class="ac-status ${isMine ? 'me' : ''}">${statusLabel}</div>
+      <div class="gc-score ${scoreBadgeClass}" style="font-weight:800;margin-top:.2rem">${scoreLabel}</div>
     `;
 
     if (!isMine && card.hasWord && card.word !== '—') {
@@ -831,6 +876,10 @@ function renderValidationRevealGrid(answers, initialScores, finalScores, challen
   const container = document.getElementById('ans-grid');
   if (!container) return;
 
+  const isHost = currentRoom && currentRoom.hostId === socket.id;
+  const hostCtrl = document.getElementById('reveal-host-ctrl');
+  if (hostCtrl) hostCtrl.style.display = isHost ? 'block' : 'none';
+
   // Order players so MY column comes FIRST
   const sortedPlayers = [...players].sort((a, b) => {
     if (a.id === socket.id) return -1;
@@ -851,7 +900,28 @@ function renderValidationRevealGrid(answers, initialScores, finalScores, challen
     const gh = document.createElement('div');
     const isMe = p.id === socket.id;
     gh.className = `gh ${isMe ? 'gh-me' : ''}`;
-    gh.textContent = isMe ? `${p.name} (Tú)` : p.name;
+
+    let nameText = isMe ? `${p.name} (Tú)` : p.name;
+    if (p.isKicked) nameText += ' (Expulsado)';
+    gh.innerHTML = `<span>${escapeHtml(nameText)}</span>`;
+
+    if (isHost && !isMe && p.connected && !p.isKicked) {
+      const kickBtn = document.createElement('button');
+      kickBtn.className = 'icon-btn';
+      kickBtn.style.marginLeft = '.4rem';
+      kickBtn.title = 'Expulsar de la sala';
+      kickBtn.innerHTML = '❌';
+      kickBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm(`¿Expulsar a ${p.name} de la sala?`)) {
+          socket.emit('kick_player', { targetPlayerId: p.id }, (res) => {
+            if (res?.error) showToast(res.error, 'warn');
+          });
+        }
+      });
+      gh.appendChild(kickBtn);
+    }
+
     container.appendChild(gh);
   });
 
@@ -899,7 +969,7 @@ function renderValidationRevealGrid(answers, initialScores, finalScores, challen
   });
 
   // Reset ready button
-  const btnVal = document.getElementById('btn-val-ready');
+  const btnVal = document.getElementById('btn-reveal-ready');
   if (btnVal) {
     btnVal.disabled = false;
     btnVal.textContent = '✅ Listo';

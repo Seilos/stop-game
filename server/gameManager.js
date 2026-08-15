@@ -78,8 +78,28 @@ function createRoom(hostId, hostName) {
 
 function addPlayer(room, playerId, playerName) {
   const isHost = playerId === room.hostId;
-  room.players.push({ id: playerId, name: playerName, ready: isHost, connected: true });
-  room.totalScores[playerId] = 0;
+  const isSpectator = room.state !== 'waiting';
+  room.players.push({
+    id: playerId,
+    name: playerName,
+    ready: isHost,
+    connected: true,
+    isSpectator,
+  });
+  if (room.totalScores[playerId] === undefined) {
+    room.totalScores[playerId] = 0;
+  }
+}
+
+function kickPlayer(room, targetPlayerId) {
+  const p = room.players.find(x => x.id === targetPlayerId);
+  if (!p) return null;
+
+  p.connected = false;
+  p.ready = false;
+  p.isKicked = true;
+  room.validationReadyPlayers.delete(targetPlayerId);
+  return p;
 }
 
 function markDisconnected(room, playerId) {
@@ -350,14 +370,16 @@ function publicCategoryStep(room, categoryIndex) {
   if (!cat) return null;
 
   const cards = room.players
-    .filter(p => p.connected)
+    .filter(p => p.connected && !p.isSpectator)
     .map((p, idx) => {
       const word = ((room.answers[p.id] || {})[cat.key] || '').trim();
+      const score = ((room.initialScores[p.id] || {})[cat.key]) || 0;
       return {
         cardId: `${cat.key}-${idx}`,
         targetPlayerId: p.id,
         word: word || '—',
         hasWord: Boolean(word),
+        initialScore: score,
       };
     });
 

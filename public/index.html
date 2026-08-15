@@ -191,8 +191,26 @@
       <div class="ans-grid" id="ans-grid"></div>
     </div>
     <div class="val-footer">
+      <div id="reveal-host-ctrl" style="display:none">
+        <button id="btn-reveal-advance" class="btn btn-secondary btn-sm">▶ Continuar a Resultados</button>
+      </div>
       <p class="hint">Revisa las respuestas reveladas de esta ronda</p>
-      <button id="btn-val-ready" class="btn btn-primary">✅ Listo</button>
+      <button id="btn-reveal-ready" class="btn btn-primary">✅ Listo</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ SPECTATOR SCREEN ═══════════════ -->
+<div id="screen-spectator" class="screen">
+  <div class="scores-wrap">
+    <div class="scores-header">
+      <h2>👀 Modo Espectador</h2>
+      <span class="letter-chip" id="spec-letter">A</span>
+    </div>
+    <p class="sub" style="text-align:center">La partida está en curso (Ronda <span id="spec-round">1</span>). Verás los resultados en vivo.</p>
+    <div class="leaderboard" id="spec-leaderboard"></div>
+    <div class="scores-footer">
+      <button id="btn-spec-leave" class="btn btn-ghost">🏠 Volver al Lobby</button>
     </div>
   </div>
 </div>

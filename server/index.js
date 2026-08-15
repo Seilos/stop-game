@@ -194,24 +194,17 @@ function showFinalRevealGrid(room) {
     initialScores: room.initialScores,
     finalScores,
     challenges:    Object.values(room.challenges).map(c => gm.publicAnonymousChallenge(c, room)),
-    players:       room.players.map(p => ({ id: p.id, name: p.name, connected: p.connected })),
+    players:       room.players.map(p => ({ id: p.id, name: p.name, connected: p.connected, isKicked: p.isKicked, isSpectator: p.isSpectator })),
     categories:    gm.CATEGORIES,
     letter:        room.currentLetter,
-    duration:      30,
+    hostId:        room.hostId,
   });
-
-  // 30-second inactivity timer on reveal grid
-  room.revealTimerRef = setTimeout(() => {
-    if (room.state === 'validating_reveal') {
-      finalizeValidation(room);
-    }
-  }, 30000);
 }
 
 function tryFinalizeValidation(room) {
   if (room.state !== 'validating_reveal') return;
-  const conn = room.players.filter(p => p.connected);
-  if (conn.every(p => room.validationReadyPlayers.has(p.id))) {
+  const conn = room.players.filter(p => p.connected && !p.isSpectator);
+  if (conn.length > 0 && conn.every(p => room.validationReadyPlayers.has(p.id))) {
     finalizeValidation(room);
   }
 }
@@ -266,10 +259,10 @@ function handleDisconnect(room, playerId, playerName) {
       broadcastState(room);
       break;
     case 'playing':
-      if (conn.length === 1) endRound(room, null);
+      if (conn.filter(p => !p.isSpectator).length === 1) endRound(room, null);
       break;
     case 'collecting':
-      room.answersExpected = conn.length;
+      room.answersExpected = conn.filter(p => !p.isSpectator).length;
       if (room.answersReceived >= room.answersExpected) proceedToValidation(room);
       break;
     case 'validating':
@@ -312,23 +305,24 @@ io.on('connection', (socket) => {
     cb({ ok: true, room: gm.publicState(room) });
   });
 
-  // ── Join room ───────────────────────────────────────────
+  // ── Join room (Allows Spectator mode if game in progress) ─
   socket.on('join_room', (code, cb) => {
     const player = players.get(socket.id);
     if (!player)       return cb({ error: 'Ingresa tu nombre primero.' });
     if (player.roomId) return cb({ error: 'Ya estás en una sala.' });
 
     const room = gm.getRoom((code || '').toUpperCase());
-    if (!room)                                                   return cb({ error: 'Sala no encontrada.' });
-    if (room.state !== 'waiting')                                return cb({ error: 'La partida ya comenzó.' });
+    if (!room) return cb({ error: 'Sala no encontrada.' });
     if (room.players.filter(p => p.connected).length >= gm.MAX_PLAYERS) return cb({ error: 'Sala llena.' });
 
     gm.addPlayer(room, socket.id, player.name);
     player.roomId = room.id;
     socket.join(room.id);
+
     broadcastState(room);
     socket.to(room.id).emit('player_joined', { id: socket.id, name: player.name });
-    cb({ ok: true, room: gm.publicState(room) });
+
+    cb({ ok: true, room: gm.publicState(room), isSpectator: room.state !== 'waiting' });
   });
 
   // ── Toggle letter ───────────────────────────────────────
@@ -496,13 +490,62 @@ io.on('connection', (socket) => {
     const player = players.get(socket.id);
     if (!player?.roomId) return;
     const room = gm.getRoom(player.roomId);
-    if (!room || room.state !== 'validating') return;
+    if (!room || room.state !== 'validating_reveal') return;
 
     room.validationReadyPlayers.add(socket.id);
     broadcast(room, 'validation_ready_update', {
       readyPlayers: Array.from(room.validationReadyPlayers),
     });
     tryFinalizeValidation(room);
+    cb?.({ ok: true });
+  });
+
+  // ── Kick player (Host only) ──────────────────────────────
+  socket.on('kick_player', ({ targetPlayerId } = {}, cb) => {
+    const player = players.get(socket.id);
+    if (!player?.roomId) return;
+    const room = gm.getRoom(player.roomId);
+    if (!room || room.hostId !== socket.id) return cb?.({ error: 'Solo el anfitrión puede expulsar.' });
+    if (targetPlayerId === socket.id) return cb?.({ error: 'No te puedes expulsar a ti mismo.' });
+
+    const kicked = gm.kickPlayer(room, targetPlayerId);
+    if (!kicked) return cb?.({ error: 'Jugador no encontrado.' });
+
+    const targetSocket = io.sockets.sockets.get(targetPlayerId);
+    if (targetSocket) {
+      targetSocket.emit('kicked_from_room');
+      targetSocket.leave(room.id);
+    }
+
+    broadcast(room, 'player_kicked', { targetPlayerId, name: kicked.name });
+    broadcastState(room);
+
+    if (room.state === 'validating_reveal') {
+      const finalScores = gm.applyChallengesToScores(room);
+      broadcast(room, 'validation_reveal_phase', {
+        answers:       room.answers,
+        initialScores: room.initialScores,
+        finalScores,
+        challenges:    Object.values(room.challenges).map(c => gm.publicAnonymousChallenge(c, room)),
+        players:       room.players.map(p => ({ id: p.id, name: p.name, connected: p.connected, isKicked: p.isKicked, isSpectator: p.isSpectator })),
+        categories:    gm.CATEGORIES,
+        letter:        room.currentLetter,
+        hostId:        room.hostId,
+      });
+      tryFinalizeValidation(room);
+    }
+
+    cb?.({ ok: true });
+  });
+
+  // ── Host override advance reveal phase ───────────────────
+  socket.on('advance_reveal_phase', (cb) => {
+    const player = players.get(socket.id);
+    if (!player?.roomId) return;
+    const room = gm.getRoom(player.roomId);
+    if (!room || room.hostId !== socket.id || room.state !== 'validating_reveal') return;
+
+    finalizeValidation(room);
     cb?.({ ok: true });
   });
 
