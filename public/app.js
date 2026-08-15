@@ -369,9 +369,10 @@ function renderPlayersList() {
   currentRoom.players.forEach((p, idx) => {
     const isMe = p.id === socket.id;
     const isHost = p.id === currentRoom.hostId;
+    const isReady = isHost ? true : p.ready;
 
     const div = document.createElement('div');
-    div.className = `player-item ${p.ready ? 'ready' : ''}`;
+    div.className = `player-item ${isReady ? 'ready' : ''}`;
 
     const colors = ['#7c3aed', '#ec4899', '#10b981', '#f59e0b', '#3b82f6', '#8b5cf6'];
     const bg = colors[idx % colors.length];
@@ -379,7 +380,7 @@ function renderPlayersList() {
     div.innerHTML = `
       <div class="p-avatar" style="background:${bg}">${p.name.charAt(0).toUpperCase()}</div>
       <span class="p-name">${escapeHtml(p.name)} ${isMe ? '(Tú)' : ''} ${isHost ? '👑' : ''}</span>
-      <span class="p-ready">${p.ready ? '✅' : '⏳'}</span>
+      <span class="p-ready">${isReady ? '✅' : '⏳'}</span>
     `;
     container.appendChild(div);
   });
@@ -450,7 +451,7 @@ function updateHostStartButton() {
   if (!btn) return;
 
   const conn = currentRoom.players.filter(p => p.connected);
-  const allReady = conn.every(p => p.ready);
+  const allReady = conn.every(p => p.id === currentRoom.hostId || p.ready);
   const hasLetters = (currentRoom.selectedLetters || []).length > 0;
   const enoughPlayers = conn.length >= 2;
 

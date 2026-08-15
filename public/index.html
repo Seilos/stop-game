@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="description" content="Stop! Juego multijugador online. Crea o \u00fanete a una sala y compite con amigos.">
+  <meta name="description" content="STOP! Juego multijugador online. Crea o únete a una sala y compite con amigos.">
   <meta name="theme-color" content="#080818">
-  <title>STOP! \u2014 Juego Multijugador</title>
+  <title>STOP! — Juego Multijugador</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -22,16 +22,16 @@
       <span class="logo-sub">Juego Multijugador</span>
     </div>
     <div class="card welcome-card">
-      <h2>\u00bfC\u00f3mo te llamas?</h2>
+      <h2>¿Cómo te llamas?</h2>
       <p class="sub">Elige un apodo para empezar</p>
       <div class="input-row">
-        <input id="inp-name" type="text" placeholder="Tu apodo\u2026" maxlength="20" autocomplete="off">
+        <input id="inp-name" type="text" placeholder="Tu apodo…" maxlength="20" autocomplete="off">
         <button id="btn-enter" class="btn btn-primary">
           Entrar
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </button>
       </div>
-      <p class="hint">M\u00e1ximo 20 caracteres</p>
+      <p class="hint">Máximo 20 caracteres</p>
     </div>
   </div>
 </div>
@@ -47,15 +47,15 @@
       <div class="card lobby-card">
         <div class="lobby-icon">🎮</div>
         <h3>Crear Sala</h3>
-        <p class="sub">S\u00e9 el anfitri\u00f3n y elige las letras</p>
+        <p class="sub">Sé el anfitrión y elige las letras</p>
         <button id="btn-create" class="btn btn-primary">Crear Sala</button>
       </div>
       <div class="lobby-or"><span>O</span></div>
       <div class="card lobby-card">
         <div class="lobby-icon">🚪</div>
         <h3>Unirse a Sala</h3>
-        <p class="sub">Ingresa el c\u00f3digo de la sala</p>
-        <input id="inp-code" type="text" placeholder="C\u00f3digo (ej: ABC123)" maxlength="6" class="code-input" autocomplete="off" autocapitalize="characters">
+        <p class="sub">Ingresa el código de la sala</p>
+        <input id="inp-code" type="text" placeholder="Código (ej: ABC123)" maxlength="6" class="code-input" autocomplete="off" autocapitalize="characters">
         <button id="btn-join" class="btn btn-secondary">Unirse</button>
       </div>
     </div>
@@ -68,11 +68,11 @@
     <!-- Header -->
     <div class="room-header">
       <div class="room-code-block">
-        <span class="room-code-label">C\u00f3digo de sala</span>
+        <span class="room-code-label">Código de sala</span>
         <span class="room-code" id="room-code">———</span>
         <button class="icon-btn" id="btn-copy" title="Copiar">📋</button>
       </div>
-      <span class="room-status" id="room-status">Esperando jugadores\u2026</span>
+      <span class="room-status" id="room-status">Esperando jugadores…</span>
     </div>
     <!-- Body -->
     <div class="room-body">
@@ -84,7 +84,7 @@
       <!-- Letters -->
       <div class="card room-panel room-panel-letters" id="panel-letters">
         <h4 class="panel-title">Letras seleccionadas</h4>
-        <div class="selected-letters" id="selected-letters"><span class="muted">El anfitri\u00f3n a\u00fan no eligi\u00f3 letras</span></div>
+        <div class="selected-letters" id="selected-letters"><span class="muted">El anfitrión aún no eligió letras</span></div>
         <div id="host-letter-area" style="display:none">
           <p class="hint" style="margin-bottom:.5rem">Haz clic en las letras para seleccionarlas:</p>
           <div class="alpha-grid" id="alpha-grid"></div>
@@ -97,9 +97,9 @@
         <button id="btn-ready" class="btn btn-secondary">⏳ Marcar como Listo</button>
       </div>
       <div id="ctrl-host-start" style="display:none">
-        <button id="btn-start" class="btn btn-primary btn-lg">\u25b6 Iniciar Partida</button>
+        <button id="btn-start" class="btn btn-primary btn-lg">▶ Iniciar Partida</button>
       </div>
-      <button id="btn-leave" class="btn btn-ghost btn-sm">\u2190 Salir de la sala</button>
+      <button id="btn-leave" class="btn btn-ghost btn-sm">← Salir de la sala</button>
     </div>
   </div>
 </div>
@@ -108,7 +108,7 @@
 <div id="screen-roulette" class="screen">
   <div class="roulette-wrap">
     <span class="rnd-badge" id="roulette-round">Ronda 1</span>
-    <p class="roulette-title" id="roulette-title">Girando la ruleta\u2026</p>
+    <p class="roulette-title" id="roulette-title">Girando la ruleta…</p>
     <div class="slot-machine" id="slot-machine">
       <div class="slot-window">
         <div class="slot-reel" id="slot-reel"></div>
@@ -117,7 +117,7 @@
       <div class="slot-fade-bot"></div>
     </div>
     <div class="letter-reveal" id="letter-reveal" style="display:none">
-      <p class="reveal-label">\u00a1La letra es!</p>
+      <p class="reveal-label">¡La letra es!</p>
       <span class="reveal-letter" id="reveal-letter">A</span>
     </div>
   </div>
@@ -141,7 +141,7 @@
         <span class="tr-text" id="timer-text">2:00</span>
       </div>
       <span class="rnd-badge" id="game-rnd">Ronda 1</span>
-      <button id="btn-stop" class="btn btn-stop">\u270b STOP!</button>
+      <button id="btn-stop" class="btn btn-stop">✋ STOP!</button>
     </div>
     <!-- Form -->
     <div class="game-form-wrap" id="game-form-wrap">
@@ -155,7 +155,7 @@
   <div class="val-wrap">
     <div class="val-header">
       <div class="val-title">
-        <span>\u26d3\ufe0f Validaci\u00f3n</span>
+        <span>⛓️ Validación</span>
         <span class="letter-chip" id="val-letter">A</span>
       </div>
       <div class="val-ready-count" id="val-ready-count">0/0 listos</div>
@@ -167,8 +167,8 @@
       <div class="ans-grid" id="ans-grid"></div>
     </div>
     <div class="val-footer">
-      <p class="hint">\uD83D\uDC86 Clic en la respuesta de otro jugador para impugnarla</p>
-      <button id="btn-val-ready" class="btn btn-primary">\u2705 Listo</button>
+      <p class="hint">💆 Clic en la respuesta de otro jugador para impugnarla</p>
+      <button id="btn-val-ready" class="btn btn-primary">✅ Listo</button>
     </div>
   </div>
 </div>
@@ -177,14 +177,14 @@
 <div id="screen-scores" class="screen">
   <div class="scores-wrap">
     <div class="scores-header">
-      <h2>Resultados \u2014 Ronda <span id="sc-round">1</span></h2>
+      <h2>Resultados — Ronda <span id="sc-round">1</span></h2>
       <span class="letter-chip" id="sc-letter">A</span>
     </div>
     <div class="leaderboard" id="leaderboard"></div>
     <div class="scores-footer">
-      <button id="btn-next-round" class="btn btn-primary" style="display:none">\u25b6 Siguiente Ronda</button>
-      <button id="btn-end-game"   class="btn btn-ghost"   style="display:none">\uD83C\uDFC1 Terminar</button>
-      <span id="sc-waiting" class="muted" style="display:none">Esperando al anfitri\u00f3n\u2026</span>
+      <button id="btn-next-round" class="btn btn-primary" style="display:none">▶ Siguiente Ronda</button>
+      <button id="btn-end-game"   class="btn btn-ghost"   style="display:none">🏁 Terminar</button>
+      <span id="sc-waiting" class="muted" style="display:none">Esperando al anfitrión…</span>
     </div>
   </div>
 </div>
@@ -193,14 +193,14 @@
 <div id="screen-gameover" class="screen">
   <div class="over-wrap">
     <div class="winner-block">
-      <div class="winner-crown">\uD83D\uDC51</div>
-      <p class="winner-label">\u00a1Ganador!</p>
+      <div class="winner-crown">👑</div>
+      <p class="winner-label">¡Ganador!</p>
       <div class="winner-name" id="winner-name">???</div>
       <div class="winner-score" id="winner-score">0 pts</div>
     </div>
     <div class="leaderboard" id="final-lb"></div>
     <div class="over-footer">
-      <button id="btn-lobby" class="btn btn-primary" style="display:none">\uD83C\uDFE0 Volver al Lobby</button>
+      <button id="btn-lobby" class="btn btn-primary" style="display:none">🏠 Volver al Lobby</button>
     </div>
   </div>
 </div>
@@ -209,16 +209,16 @@
 <div id="vote-modal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="vm-title">
   <div class="modal-card">
     <div class="modal-head">
-      <h3 id="vm-title">\u2696\ufe0f Impugnaci\u00f3n</h3>
+      <h3 id="vm-title">⚖️ Impugnación</h3>
       <span class="vm-timer" id="vm-timer">30s</span>
     </div>
     <div class="challenge-info" id="vm-info"></div>
     <div class="vote-bars" id="vm-bars"></div>
     <div class="vote-btns" id="vm-btns">
-      <button id="btn-vote-valid"   class="btn btn-success">\u2705 V\u00e1lida</button>
-      <button id="btn-vote-invalid" class="btn btn-danger">\u274c Inv\u00e1lida</button>
+      <button id="btn-vote-valid"   class="btn btn-success">✅ Válida</button>
+      <button id="btn-vote-invalid" class="btn btn-danger">❌ Inválida</button>
     </div>
-    <p id="vm-wait" class="hint" style="display:none;text-align:center">Tu voto fue registrado\u2026</p>
+    <p id="vm-wait" class="hint" style="display:none;text-align:center">Tu voto fue registrado…</p>
   </div>
 </div>
 

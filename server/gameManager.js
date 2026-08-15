@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const { normalize, containsNumbers } = require('./utils');
 
@@ -73,7 +73,8 @@ function createRoom(hostId, hostName) {
 }
 
 function addPlayer(room, playerId, playerName) {
-  room.players.push({ id: playerId, name: playerName, ready: false, connected: true });
+  const isHost = playerId === room.hostId;
+  room.players.push({ id: playerId, name: playerName, ready: isHost, connected: true });
   room.totalScores[playerId] = 0;
 }
 
@@ -112,7 +113,7 @@ function publicState(room) {
     players:         room.players.map(p => ({
       id:         p.id,
       name:       p.name,
-      ready:      p.ready,
+      ready:      p.id === room.hostId ? true : p.ready,
       connected:  p.connected,
       totalScore: room.totalScores[p.id] || 0,
     })),
@@ -147,8 +148,8 @@ function canStart(room) {
   if (conn.length < 2)                         return { ok: false, reason: 'Se necesitan al menos 2 jugadores.' };
   if (room.selectedLetters.length === 0)       return { ok: false, reason: 'Selecciona al menos una letra.' };
   if (availableLetters(room).length === 0)     return { ok: false, reason: 'No quedan letras disponibles.' };
-  if (!conn.every(p => p.ready))               return { ok: false, reason: 'Todos los jugadores deben estar listos.' };
-  if (room.state !== 'waiting')                return { ok: false, reason: 'La partida ya est\u00e1 en curso.' };
+  if (!conn.every(p => p.id === room.hostId || p.ready)) return { ok: false, reason: 'Todos los jugadores invitados deben estar listos.' };
+  if (room.state !== 'waiting')                return { ok: false, reason: 'La partida ya está en curso.' };
   return { ok: true };
 }
 
