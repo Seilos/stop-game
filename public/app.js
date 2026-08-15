@@ -7,6 +7,7 @@ let socket;
 let myPlayerId = null;
 let myName = '';
 let currentRoom = null;
+let currentRoundLetter = 'A';
 let activeChallenge = null;
 let challengeVoteTimer = null;
 let challengeSecsLeft = 10;
@@ -95,6 +96,7 @@ function setupSocketListeners() {
 
   socket.on('room_state', (room) => {
     currentRoom = room;
+    if (room.currentLetter) currentRoundLetter = room.currentLetter;
     updateRoomUI();
   });
 
@@ -132,12 +134,16 @@ function setupSocketListeners() {
 
   // ── ROULETTE / SPIN ──────────────────────────────────────
   socket.on('start_spin', ({ letter, round, duration }) => {
+    if (currentRoom) currentRoom.currentLetter = letter;
+    currentRoundLetter = letter;
     showScreen('roulette');
     runRouletteAnimation(letter, round, duration);
   });
 
   // ── GAME PLAYING ─────────────────────────────────────────
   socket.on('round_started', ({ letter, round, duration }) => {
+    if (currentRoom) currentRoom.currentLetter = letter;
+    currentRoundLetter = letter;
     showScreen('game');
     startTimerRing(duration);
     document.getElementById('game-letter').textContent = letter;
@@ -729,7 +735,7 @@ function renderAnonymousCategoryStep(data) {
 
   document.getElementById('val-cat-step-num').textContent = `Categoría ${data.categoryIndex + 1} de ${data.totalCategories}`;
   document.getElementById('val-cat-title').textContent = data.categoryLabel.toUpperCase();
-  document.getElementById('val-cat-sub').textContent = 'Toca cualquier respuesta sospechosa para impugnarla (Anónimo)';
+  document.getElementById('val-cat-sub').textContent = 'Toca cualquier respuesta sospechosa para impugnarla';
 
   // Reset timer bar
   const bar = document.getElementById('cat-timer-bar');
@@ -738,31 +744,40 @@ function renderAnonymousCategoryStep(data) {
   // Hide vote tracker
   document.getElementById('val-vote-tracker').style.display = 'none';
 
-  // Render cards
+  // Render cards: SORT MY CARD FIRST
   const container = document.getElementById('anon-cards-wrap');
   if (!container) return;
 
   container.innerHTML = '';
-  data.cards.forEach(card => {
+
+  const sortedCards = [...data.cards].sort((a, b) => {
+    if (a.targetPlayerId === socket.id) return -1;
+    if (b.targetPlayerId === socket.id) return 1;
+    return 0;
+  });
+
+  sortedCards.forEach(card => {
+    const isMine = card.targetPlayerId === socket.id;
     const cardEl = document.createElement('div');
-    cardEl.className = 'anon-card';
+    cardEl.className = `anon-card ${isMine ? 'own' : ''}`;
     cardEl.id = `card-${card.cardId}`;
     cardEl.dataset.targetId = card.targetPlayerId;
     cardEl.dataset.category = data.categoryKey;
     cardEl.dataset.word = card.word;
 
+    const statusLabel = isMine
+      ? '👤 Tu respuesta'
+      : (card.hasWord && card.word !== '—' ? 'Respuesta enviada' : 'Sin respuesta');
+
     cardEl.innerHTML = `
       <div class="ac-word">${escapeHtml(card.word)}</div>
-      <div class="ac-status">${card.hasWord && card.word !== '—' ? 'Respuesta enviada' : 'Sin respuesta'}</div>
+      <div class="ac-status ${isMine ? 'me' : ''}">${statusLabel}</div>
     `;
 
-    if (card.hasWord && card.word !== '—') {
-      const isMine = card.targetPlayerId === socket.id;
-      if (!isMine) {
-        cardEl.addEventListener('click', () => {
-          openReasonModal(card.targetPlayerId, 'Jugador Anónimo', data.categoryKey, card.word);
-        });
-      }
+    if (!isMine && card.hasWord && card.word !== '—') {
+      cardEl.addEventListener('click', () => {
+        openReasonModal(card.targetPlayerId, 'Jugador Anónimo', data.categoryKey, card.word);
+      });
     }
 
     container.appendChild(cardEl);

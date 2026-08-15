@@ -15,7 +15,7 @@ const CATEGORY_KEYS = CATEGORIES.map(c => c.key);
 
 const MAX_PLAYERS              = 10;
 const ROUND_DURATION_SEC       = 120;
-const SPIN_DURATION_MS         = 3500;
+const SPIN_DURATION_MS         = 5000;
 const VOTE_DURATION_SEC        = 10;
 const VALIDATION_INACTIVITY_SEC = 30;
 

@@ -563,6 +563,11 @@ input[type="text"]:focus{
   gap:.4rem;text-align:center;cursor:pointer;transition:var(--tr);min-height:90px;
 }
 .anon-card:hover{background:var(--card-h);border-color:var(--border-h);transform:translateY(-2px)}
+.anon-card.own{
+  background:rgba(124,58,237,.12);border:2px solid var(--primary);
+  box-shadow:0 0 16px var(--primary-glow);cursor:default!important;
+}
+.anon-card.own:hover{transform:none}
 .anon-card.dimmed{opacity:.35;pointer-events:none;transform:scale(.96)}
 .anon-card.challenged{
   background:rgba(245,158,11,.18);border:2px solid var(--warn);
@@ -572,5 +577,6 @@ input[type="text"]:focus{
 .anon-card.invalidated .ac-word{text-decoration:line-through;color:#fca5a5}
 .ac-word{font-size:1.15rem;font-weight:800;word-break:break-word}
 .ac-status{font-size:.72rem;font-weight:700;color:var(--txt3)}
+.ac-status.me{color:var(--primary-l);font-weight:800;background:rgba(124,58,237,.2);padding:.2rem .6rem;border-radius:20px}
 .ac-status.ok{color:var(--success)}
 .ac-status.bad{color:var(--danger)}
