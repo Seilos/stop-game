@@ -57,7 +57,8 @@ body::before{
 .screen{
   position:fixed;inset:0;
   display:none;flex-direction:column;
-  z-index:10;overflow:hidden;
+  z-index:10;overflow-y:auto;overflow-x:hidden;
+  padding-bottom:70px;
 }
 .screen.active{
   display:flex;
@@ -411,15 +412,16 @@ input[type="text"]:focus{
 
 /* ────── MODAL ────── */
 .modal{
-  position:fixed;inset:0;background:rgba(0,0,0,.72);
-  backdrop-filter:blur(10px);z-index:200;
+  position:fixed;inset:0;background:rgba(0,0,0,.78);
+  backdrop-filter:blur(12px);z-index:2000;
   display:flex;align-items:center;justify-content:center;padding:1rem;
   animation:mIn .2s ease both;
 }
 @keyframes mIn{from{opacity:0}to{opacity:1}}
 .modal-card{
   background:var(--bg3);border:1px solid var(--border-h);border-radius:var(--r-l);
-  padding:1.5rem;width:100%;max-width:390px;display:flex;flex-direction:column;gap:1.1rem;
+  padding:1.5rem;width:100%;max-width:420px;max-height:85dvh;overflow-y:auto;
+  display:flex;flex-direction:column;gap:1.1rem;
   animation:mCard .3s cubic-bezier(.34,1.56,.64,1) both;
 }
 @keyframes mCard{from{transform:scale(.88) translateY(20px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}

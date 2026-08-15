@@ -389,14 +389,21 @@ function publicChallenge(c) {
 function publicAnonymousChallenge(c, room) {
   const totalVoters = c.eligibleVoters.length + 1;
   const votedCount  = Object.keys(c.votes).length;
+  const votesTrue   = Object.values(c.votes).filter(v => v === true).length;
+  const votesFalse  = Object.values(c.votes).filter(v => v === false).length;
 
   return {
     id:             c.id,
+    challengerId:   c.challengerId,
     targetPlayerId: c.targetPlayerId,
     category:       c.category,
     word:           c.word,
     reason:         c.reason || 'Palabra dudosa',
     challengeType:  c.challengeType || 'INVALID',
+    eligibleVoters: c.eligibleVoters,
+    voters:         Object.keys(c.votes),
+    votesTrue,
+    votesFalse,
     votedCount,
     totalVoters,
     resolved:       c.resolved,

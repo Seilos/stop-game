@@ -176,6 +176,10 @@ function setupSocketListeners() {
     currentRoom = room;
     if (room.currentLetter) currentRoundLetter = room.currentLetter;
     updateRoomUI();
+    // If room reset to lobby state (e.g. Host clicked "Volver a la sala" in Game Over), switch screen to room
+    if (room.state === 'lobby') {
+      showScreen('room');
+    }
   });
 
   socket.on('player_joined', ({ name }) => {
@@ -260,13 +264,8 @@ function setupSocketListeners() {
     highlightChallengedCard(challenge.targetPlayerId, challenge.category);
     updateVoteTrackerDots(challenge.votedCount, challenge.totalVoters);
 
-    // Only show vote modal if socket.id is ELIGIBLE (not challenger and NOT target owner)
-    const isEligible = challenge.eligibleVoters?.includes(socket.id);
-    if (isEligible) {
-      showVoteModal(challenge);
-    } else {
-      hideVoteModal();
-    }
+    // Show vote modal for ALL connected players so everyone sees the voting progress & 2s veredicto banner!
+    showVoteModal(challenge);
   });
 
   socket.on('category_vote_progress', (challenge) => {
@@ -1202,16 +1201,35 @@ function showVoteModal(challenge) {
     <div class="ch-word">"${escapeHtml(challenge.word)}"</div>
     <span class="ctype-badge ${challenge.challengeType}">${typeLabel}</span>
     ${challenge.reason ? `<div class="ch-reason-badge">💬 <b>${escapeHtml(challenge.reason)}</b></div>` : ''}
-    <div class="ch-meta">Categoría: <b>${escapeHtml(challenge.category)}</b> | Por: <b>${escapeHtml(challenger?.name || '')}</b></div>
+    <div class="ch-meta">Categoría: <b>${escapeHtml(challenge.category)}</b> | Por: <b>${escapeHtml(challenger?.name || 'Jugador')}</b></div>
   `;
 
   updateVoteModalBars(challenge);
 
-  const isEligible = challenge.eligibleVoters.includes(socket.id);
-  const hasVoted = challenge.voters.includes(socket.id);
+  const isEligible = challenge.eligibleVoters?.includes(socket.id);
+  const hasVoted = challenge.voters?.includes(socket.id);
+  const isTarget = challenge.targetPlayerId === socket.id;
+  const isChallenger = challenge.challengerId === socket.id;
 
-  document.getElementById('vm-btns').style.display = (isEligible && !hasVoted) ? 'flex' : 'none';
-  document.getElementById('vm-wait').style.display = (isEligible && hasVoted) ? 'block' : 'none';
+  const btnWrap = document.getElementById('vm-btns');
+  const waitEl = document.getElementById('vm-wait');
+
+  if (isEligible && !hasVoted) {
+    btnWrap.style.display = 'flex';
+    waitEl.style.display = 'none';
+  } else {
+    btnWrap.style.display = 'none';
+    waitEl.style.display = 'block';
+    if (isTarget) {
+      waitEl.textContent = '⚠️ Tu palabra está siendo impugnada. Los demás están votando…';
+    } else if (isChallenger) {
+      waitEl.textContent = '⚖️ Impugnación enviada. Esperando votos del resto…';
+    } else if (hasVoted) {
+      waitEl.textContent = '✅ Tu voto fue registrado. Esperando a los demás…';
+    } else {
+      waitEl.textContent = 'Votación en curso…';
+    }
+  }
 
   modal.style.display = 'flex';
 
@@ -1305,6 +1323,9 @@ function escapeHtml(str) {
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
 ];
 
 async function joinVoice() {
@@ -1318,6 +1339,16 @@ async function joinVoice() {
 
     // Start muted by default
     applyMicMode('muted');
+
+    // Attach local stream tracks to any existing peer connections
+    Object.values(voicePeers).forEach(({ pc }) => {
+      localStream.getAudioTracks().forEach(t => {
+        const senders = pc.getSenders();
+        if (!senders.some(s => s.track === t)) {
+          pc.addTrack(t, localStream);
+        }
+      });
+    });
 
     socket.emit('voice_join', (res) => {
       if (res?.error) {
@@ -1357,13 +1388,15 @@ function leaveVoice() {
 }
 
 async function createPeer(peerId, isInitiator) {
-  if (voicePeers[peerId]) return; // already exists
+  if (voicePeers[peerId]) return voicePeers[peerId].pc; // already exists
 
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   voicePeers[peerId] = { pc };
 
   // Add local audio tracks
-  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  if (localStream) {
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  }
 
   // ICE candidate handler
   pc.onicecandidate = ({ candidate }) => {
@@ -1379,9 +1412,11 @@ async function createPeer(peerId, isInitiator) {
       audio.id = `audio-${peerId}`;
       audio.autoplay = true;
       audio.playsInline = true;
+      audio.volume = 1.0;
       document.getElementById('audio-container').appendChild(audio);
     }
     audio.srcObject = stream;
+    audio.play().catch(e => console.log('Autoplay deferred', e));
     startVAD(stream, peerId);
   };
 
