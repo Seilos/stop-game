@@ -87,68 +87,15 @@ function endRound(room, stopperId) {
   room.answerCollectionTimer = setTimeout(() => proceedToValidation(room), 3000);
 }
 
-function resetValidationInactivityTimer(room) {
-  if (room.validationInactivityTimer) {
-    clearTimeout(room.validationInactivityTimer);
-    room.validationInactivityTimer = null;
-  }
-  if (room.state !== 'validating') return;
-  if (room.activeChallengeId || (room.challengeQueue && room.challengeQueue.length > 0)) return;
-
-  room.validationInactivityTimer = setTimeout(() => {
-    if (room.state === 'validating') {
-      gm.resolvePending(room);
-      finalizeValidation(room);
-    }
-  }, gm.VALIDATION_INACTIVITY_SEC * 1000);
-}
-
-function processNextChallenge(room) {
-  if (room.state !== 'validating') return;
-  if (room.activeChallengeId) return;
-  if (!room.challengeQueue || room.challengeQueue.length === 0) {
-    resetValidationInactivityTimer(room);
-    tryFinalizeValidation(room);
-    return;
-  }
-
-  if (room.validationInactivityTimer) {
-    clearTimeout(room.validationInactivityTimer);
-    room.validationInactivityTimer = null;
-  }
-
-  const challenge = room.challengeQueue.shift();
-  room.activeChallengeId = challenge.id;
-
-  challenge.timerRef = setTimeout(() => {
-    if (!challenge.resolved) {
-      gm.resolveChallenge(challenge);
-      onChallengeResolved(room, challenge);
-    }
-  }, gm.VOTE_DURATION_SEC * 1000);
-
-  broadcast(room, 'challenge_started', gm.publicChallenge(challenge));
-}
-
-function onChallengeResolved(room, challenge) {
-  broadcast(room, 'challenge_resolved', gm.publicChallenge(challenge));
-  room.activeChallengeId = null;
-
-  broadcast(room, 'validation_updated', {
-    challenges: Object.values(room.challenges).map(gm.publicChallenge)
-  });
-
-  setTimeout(() => {
-    processNextChallenge(room);
-  }, 1000);
-}
+// ────────────────────────────────────────────────────────────────
+// VALIDATION STATE MACHINE (ANONYMOUS SEQUENTIAL CATEGORIES)
+// ────────────────────────────────────────────────────────────────
 
 function proceedToValidation(room) {
   if (room.state !== 'collecting') return;
   gm.clearTimers(room);
   room.state = 'validating';
-  room.challengeQueue = [];
-  room.activeChallengeId = null;
+  room.currentCategoryIndex = 0;
 
   // Trim whitespace and fill missing answers
   room.players.forEach(p => {
@@ -164,25 +111,95 @@ function proceedToValidation(room) {
 
   room.initialScores = gm.calcInitialScores(room);
 
-  broadcast(room, 'validation_phase', {
+  // Start Category 0 (Nombre)
+  startCategoryStep(room, 0);
+}
+
+function startCategoryStep(room, categoryIndex) {
+  if (room.state !== 'validating') return;
+
+  // If all categories (0 to 6) are finished -> Go to Reveal Grid
+  if (categoryIndex >= gm.CATEGORIES.length) {
+    showFinalRevealGrid(room);
+    return;
+  }
+
+  clearCategoryTimers(room);
+
+  room.currentCategoryIndex = categoryIndex;
+  room.categoryState = 'reading'; // reading or voting
+  room.categorySecondsLeft = 10;
+  room.activeChallenge = null;
+
+  const payload = gm.publicCategoryStep(room, categoryIndex);
+  broadcast(room, 'category_step_started', {
+    ...payload,
+    duration: 10,
+  });
+
+  room.categoryTimerRef = setInterval(() => {
+    room.categorySecondsLeft--;
+    broadcast(room, 'category_timer_tick', room.categorySecondsLeft);
+
+    if (room.categorySecondsLeft <= 0) {
+      clearCategoryTimers(room);
+      // Move to next category automatically
+      startCategoryStep(room, room.currentCategoryIndex + 1);
+    }
+  }, 1000);
+}
+
+function clearCategoryTimers(room) {
+  if (room.categoryTimerRef) { clearInterval(room.categoryTimerRef); room.categoryTimerRef = null; }
+  if (room.voteTimerRef)     { clearTimeout(room.voteTimerRef);     room.voteTimerRef = null; }
+}
+
+function onCategoryChallengeResolved(room, challenge) {
+  clearCategoryTimers(room);
+  broadcast(room, 'category_challenge_resolved', gm.publicAnonymousChallenge(challenge, room));
+
+  setTimeout(() => {
+    // Advance to next category after voting finishes
+    startCategoryStep(room, room.currentCategoryIndex + 1);
+  }, 1200);
+}
+
+function showFinalRevealGrid(room) {
+  clearCategoryTimers(room);
+  room.state = 'validating_reveal';
+  room.validationReadyPlayers = new Set();
+
+  const finalScores = gm.applyChallengesToScores(room);
+
+  broadcast(room, 'validation_reveal_phase', {
     answers:       room.answers,
     initialScores: room.initialScores,
+    finalScores,
+    challenges:    Object.values(room.challenges).map(c => gm.publicAnonymousChallenge(c, room)),
     players:       room.players.map(p => ({ id: p.id, name: p.name, connected: p.connected })),
     categories:    gm.CATEGORIES,
     letter:        room.currentLetter,
+    duration:      30,
   });
 
-  resetValidationInactivityTimer(room);
+  // 30-second inactivity timer on reveal grid
+  room.revealTimerRef = setTimeout(() => {
+    if (room.state === 'validating_reveal') {
+      finalizeValidation(room);
+    }
+  }, 30000);
 }
 
 function tryFinalizeValidation(room) {
-  if (room.state !== 'validating') return;
-  if (!gm.checkValidationDone(room)) return;
-  gm.resolvePending(room);
-  finalizeValidation(room);
+  if (room.state !== 'validating_reveal') return;
+  const conn = room.players.filter(p => p.connected);
+  if (conn.every(p => room.validationReadyPlayers.has(p.id))) {
+    finalizeValidation(room);
+  }
 }
 
 function finalizeValidation(room) {
+  if (room.revealTimerRef) { clearTimeout(room.revealTimerRef); room.revealTimerRef = null; }
   const finalScores = gm.applyChallengesToScores(room);
   gm.updateTotalScores(room, finalScores);
   if (!room.usedLetters.includes(room.currentLetter))
@@ -222,6 +239,7 @@ function handleDisconnect(room, playerId, playerName) {
 
   if (room.hostId === playerId) {
     room.hostId = conn[0].id;
+    conn[0].ready = true;
     broadcast(room, 'host_changed', { newHostId: room.hostId });
   }
 
@@ -237,6 +255,12 @@ function handleDisconnect(room, playerId, playerName) {
       if (room.answersReceived >= room.answersExpected) proceedToValidation(room);
       break;
     case 'validating':
+      if (room.activeChallenge) {
+        gm._checkMajority(room.activeChallenge);
+        if (room.activeChallenge.resolved) onCategoryChallengeResolved(room, room.activeChallenge);
+      }
+      break;
+    case 'validating_reveal':
       tryFinalizeValidation(room);
       break;
   }
@@ -252,7 +276,7 @@ io.on('connection', (socket) => {
   // ── Set name ────────────────────────────────────────────
   socket.on('set_name', (name, cb) => {
     const clean = (name || '').trim().substring(0, 20);
-    if (!clean) return cb({ error: 'Nombre inv\u00e1lido.' });
+    if (!clean) return cb({ error: 'Nombre inválido.' });
     players.set(socket.id, { name: clean, roomId: null });
     cb({ ok: true, playerId: socket.id, name: clean });
   });
@@ -261,7 +285,7 @@ io.on('connection', (socket) => {
   socket.on('create_room', (cb) => {
     const player = players.get(socket.id);
     if (!player)        return cb({ error: 'Ingresa tu nombre primero.' });
-    if (player.roomId)  return cb({ error: 'Ya est\u00e1s en una sala.' });
+    if (player.roomId)  return cb({ error: 'Ya estás en una sala.' });
 
     const room = gm.createRoom(socket.id, player.name);
     player.roomId = room.id;
@@ -274,11 +298,11 @@ io.on('connection', (socket) => {
   socket.on('join_room', (code, cb) => {
     const player = players.get(socket.id);
     if (!player)       return cb({ error: 'Ingresa tu nombre primero.' });
-    if (player.roomId) return cb({ error: 'Ya est\u00e1s en una sala.' });
+    if (player.roomId) return cb({ error: 'Ya estás en una sala.' });
 
     const room = gm.getRoom((code || '').toUpperCase());
     if (!room)                                                   return cb({ error: 'Sala no encontrada.' });
-    if (room.state !== 'waiting')                                return cb({ error: 'La partida ya comenz\u00f3.' });
+    if (room.state !== 'waiting')                                return cb({ error: 'La partida ya comenzó.' });
     if (room.players.filter(p => p.connected).length >= gm.MAX_PLAYERS) return cb({ error: 'Sala llena.' });
 
     gm.addPlayer(room, socket.id, player.name);
@@ -319,7 +343,7 @@ io.on('connection', (socket) => {
     const player = players.get(socket.id);
     if (!player?.roomId) return;
     const room = gm.getRoom(player.roomId);
-    if (!room || room.hostId !== socket.id) return cb?.({ error: 'Solo el anfitri\u00f3n puede iniciar.' });
+    if (!room || room.hostId !== socket.id) return cb?.({ error: 'Solo el anfitrión puede iniciar.' });
 
     const check = gm.canStart(room);
     if (!check.ok) return cb?.({ error: check.reason });
@@ -354,12 +378,12 @@ io.on('connection', (socket) => {
     if (room.answersReceived >= room.answersExpected) proceedToValidation(room);
   });
 
-  // ── Challenge word ──────────────────────────────────────
+  // ── Challenge word in category step ──────────────────────
   socket.on('challenge_word', ({ targetPlayerId, category, reason } = {}, cb) => {
     const player = players.get(socket.id);
     if (!player?.roomId) return;
     const room = gm.getRoom(player.roomId);
-    if (!room || room.state !== 'validating') return;
+    if (!room || room.state !== 'validating' || room.categoryState !== 'reading') return;
     if (socket.id === targetPlayerId) return;
 
     const word = ((room.answers[targetPlayerId] || {})[category] || '').trim();
@@ -368,11 +392,23 @@ io.on('connection', (socket) => {
     const alreadyChallenged = Object.values(room.challenges).some(
       c => c.targetPlayerId === targetPlayerId && c.category === category
     );
-    if (alreadyChallenged) return cb?.({ error: 'Esta respuesta ya fue votada y no se puede volver a impugnar.' });
+    if (alreadyChallenged) return cb?.({ error: 'Esta respuesta ya fue votada.' });
+
+    clearCategoryTimers(room);
+    room.categoryState = 'voting';
 
     const challenge = gm.createChallenge(room, socket.id, targetPlayerId, category, reason);
-    if (!room.challengeQueue) room.challengeQueue = [];
-    room.challengeQueue.push(challenge);
+    room.activeChallenge = challenge;
+
+    broadcast(room, 'category_challenge_started', gm.publicAnonymousChallenge(challenge, room));
+
+    // 10-second voting timer
+    challenge.timerRef = setTimeout(() => {
+      if (!challenge.resolved) {
+        gm.resolveChallenge(challenge);
+        onCategoryChallengeResolved(room, challenge);
+      }
+    }, 10000);
 
     cb?.({ ok: true, challengeId: challenge.id });
 

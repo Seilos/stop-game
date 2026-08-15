@@ -155,24 +155,43 @@
   </div>
 </div>
 
-<!-- ═══════════════ VALIDATION ═══════════════ -->
+<!-- ═══════════════ ANONYMOUS CATEGORY VALIDATION ═══════════════ -->
 <div id="screen-validation" class="screen">
+  <div class="val-cat-wrap">
+    <!-- Top Progress Bar -->
+    <div class="val-progress-bar-wrap">
+      <div class="val-progress-bar" id="cat-timer-bar"></div>
+    </div>
+    <div class="val-cat-header">
+      <div class="val-cat-badge" id="val-cat-step-num">Categoría 1 de 7</div>
+      <h2 class="val-cat-title" id="val-cat-title">NOMBRE</h2>
+      <p class="val-cat-sub" id="val-cat-sub">Toca cualquier respuesta sospechosa para impugnarla (Anónimo)</p>
+    </div>
+    <!-- Vote indicators container (when voting is active) -->
+    <div id="val-vote-tracker" class="val-vote-tracker" style="display:none">
+      <span class="vtr-label">Votación en curso:</span>
+      <div class="vtr-dots" id="vtr-dots"></div>
+    </div>
+    <!-- Cards grid -->
+    <div class="anon-cards-wrap" id="anon-cards-wrap"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ FINAL REVEAL GRID ═══════════════ -->
+<div id="screen-validation-reveal" class="screen">
   <div class="val-wrap">
     <div class="val-header">
       <div class="val-title">
-        <span>⛓️ Validación</span>
+        <span>📜 Resumen de Respuestas</span>
         <span class="letter-chip" id="val-letter">A</span>
       </div>
       <div class="val-ready-count" id="val-ready-count">0/0 listos</div>
     </div>
-    <!-- Active challenges -->
-    <div class="challenges-bar" id="challenges-bar"></div>
-    <!-- Grid -->
     <div class="grid-scroll">
       <div class="ans-grid" id="ans-grid"></div>
     </div>
     <div class="val-footer">
-      <p class="hint">💆 Clic en la respuesta de otro jugador para impugnarla</p>
+      <p class="hint">Revisa las respuestas reveladas de esta ronda</p>
       <button id="btn-val-ready" class="btn btn-primary">✅ Listo</button>
     </div>
   </div>

@@ -241,8 +241,11 @@ function leaderboard(room) {
 function createChallenge(room, challengerId, targetPlayerId, category, reason = '') {
   const id = genId();
   const raw = ((room.answers[targetPlayerId] || {})[category] || '').trim();
-  // Eligible voters: EVERY connected player except challenger (who already voted false)
-  const eligible = room.players.filter(p => p.connected && p.id !== challengerId).map(p => p.id);
+  // Eligible voters: EVERY connected player EXCEPT challenger and EXCEPT target player (owner)
+  const eligible = room.players
+    .filter(p => p.connected && p.id !== challengerId && p.id !== targetPlayerId)
+    .map(p => p.id);
+
   const challenge = {
     id,
     challengerId,
@@ -250,7 +253,7 @@ function createChallenge(room, challengerId, targetPlayerId, category, reason = 
     category,
     word: raw,
     reason: (reason || '').trim().substring(0, 120),
-    votes: { [challengerId]: false }, // Challenger automatically votes false
+    votes: { [challengerId]: false }, // Challenger automatically votes false (invalid)
     eligibleVoters: eligible,
     resolved: false,
     result: null,
@@ -325,6 +328,48 @@ function publicChallenge(c) {
   };
 }
 
+function publicAnonymousChallenge(c, room) {
+  const totalVoters = c.eligibleVoters.length + 1;
+  const votedCount  = Object.keys(c.votes).length;
+
+  return {
+    id:             c.id,
+    targetPlayerId: c.targetPlayerId,
+    category:       c.category,
+    word:           c.word,
+    reason:         c.reason || 'Palabra dudosa',
+    votedCount,
+    totalVoters,
+    resolved:       c.resolved,
+    result:         c.result,
+  };
+}
+
+function publicCategoryStep(room, categoryIndex) {
+  const cat = CATEGORIES[categoryIndex];
+  if (!cat) return null;
+
+  const cards = room.players
+    .filter(p => p.connected)
+    .map((p, idx) => {
+      const word = ((room.answers[p.id] || {})[cat.key] || '').trim();
+      return {
+        cardId: `${cat.key}-${idx}`,
+        targetPlayerId: p.id,
+        word: word || '—',
+        hasWord: Boolean(word),
+      };
+    });
+
+  return {
+    categoryIndex,
+    categoryKey: cat.key,
+    categoryLabel: cat.label,
+    totalCategories: CATEGORIES.length,
+    cards,
+  };
+}
+
 // ────────────────────────────────────────────────────────────────
 // RESET
 // ────────────────────────────────────────────────────────────────
@@ -354,7 +399,7 @@ module.exports = {
   MAX_PLAYERS, ROUND_DURATION_SEC, SPIN_DURATION_MS, VOTE_DURATION_SEC, VALIDATION_INACTIVITY_SEC,
   createRoom, addPlayer, markDisconnected,
   getRoom, deleteRoom, findRoomOf, clearTimers,
-  publicState, publicChallenge,
+  publicState, publicChallenge, publicAnonymousChallenge, publicCategoryStep,
   toggleLetter, setReady, canStart, pickLetter, isGameOver,
   calcInitialScores, applyChallengesToScores, updateTotalScores, leaderboard,
   createChallenge, voteOnChallenge, resolveChallenge, resolvePending,

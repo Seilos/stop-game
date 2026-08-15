@@ -26,14 +26,15 @@ const CATEGORIES = [
 
 // Screen Elements
 const screens = {
-  welcome:    document.getElementById('screen-welcome'),
-  lobby:      document.getElementById('screen-lobby'),
-  room:       document.getElementById('screen-room'),
-  roulette:   document.getElementById('screen-roulette'),
-  game:       document.getElementById('screen-game'),
-  validation: document.getElementById('screen-validation'),
-  scores:     document.getElementById('screen-scores'),
-  gameover:   document.getElementById('screen-gameover'),
+  welcome:          document.getElementById('screen-welcome'),
+  lobby:            document.getElementById('screen-lobby'),
+  room:             document.getElementById('screen-room'),
+  roulette:         document.getElementById('screen-roulette'),
+  game:             document.getElementById('screen-game'),
+  validation:       document.getElementById('screen-validation'),
+  validationReveal: document.getElementById('screen-validation-reveal'),
+  scores:           document.getElementById('screen-scores'),
+  gameover:         document.getElementById('screen-gameover'),
 };
 
 function showScreen(name) {
@@ -160,48 +161,63 @@ function setupSocketListeners() {
     sendMyAnswers();
   });
 
-  // ── VALIDATION PHASE ─────────────────────────────────────
-  socket.on('validation_phase', ({ answers, initialScores, players, categories, letter }) => {
-    lastValidationState = { answers, initialScores, players, categories, letter };
-    currentValidationChallenges = [];
-    showScreen('validation');
-    document.getElementById('val-letter').textContent = letter;
-    renderValidationGrid(answers, initialScores, players, categories);
-    updateValidationReadyStatus([]);
+  // ── ANONYMOUS CATEGORY VALIDATION ──────────────────────────
+  socket.on('category_step_started', (data) => {
     hideVoteModal();
+    renderAnonymousCategoryStep(data);
   });
 
-  socket.on('validation_updated', ({ challenges }) => {
-    currentValidationChallenges = challenges || [];
-    if (lastValidationState) {
-      renderValidationGrid(
-        lastValidationState.answers,
-        lastValidationState.initialScores,
-        lastValidationState.players,
-        lastValidationState.categories
-      );
+  socket.on('category_timer_tick', (secondsLeft) => {
+    updateCategoryTimerBar(secondsLeft, 10);
+  });
+
+  socket.on('category_challenge_started', (challenge) => {
+    activeChallenge = challenge;
+    highlightChallengedCard(challenge.targetPlayerId, challenge.category);
+    updateVoteTrackerDots(challenge.votedCount, challenge.totalVoters);
+
+    // Only show vote modal if socket.id is ELIGIBLE (not challenger and NOT target owner)
+    const isEligible = challenge.eligibleVoters?.includes(socket.id);
+    if (isEligible) {
+      showVoteModal(challenge);
+    } else {
+      hideVoteModal();
     }
   });
 
-  socket.on('challenge_started', (challenge) => {
-    activeChallenge = challenge;
-    renderActiveChallengeNotif(challenge);
-    showVoteModal(challenge);
-  });
-
-  socket.on('challenge_vote_update', (challenge) => {
+  socket.on('category_vote_progress', (challenge) => {
     if (activeChallenge && activeChallenge.id === challenge.id) {
       activeChallenge = challenge;
+      updateVoteTrackerDots(challenge.votedCount, challenge.totalVoters);
       updateVoteModalBars(challenge);
     }
   });
 
-  socket.on('challenge_resolved', (challenge) => {
-    showToast(`Desafío en "${challenge.category}": ${challenge.result ? 'VÁLIDA' : 'INVÁLIDA'}`, challenge.result ? 'success' : 'error');
-    removeChallengeNotif(challenge.id);
-    if (activeChallenge && activeChallenge.id === challenge.id) {
-      hideVoteModal();
-    }
+  socket.on('category_challenge_resolved', (challenge) => {
+    hideVoteModal();
+    resetChallengedCards();
+
+    // Mark card as invalidated/validated
+    const cards = document.querySelectorAll('.anon-card');
+    cards.forEach(card => {
+      if (card.dataset.targetId === challenge.targetPlayerId) {
+        if (challenge.result === false) {
+          card.classList.add('invalidated');
+        } else {
+          card.classList.add('validated');
+        }
+      }
+    });
+
+    showToast(`Respuesta "${challenge.word}": ${challenge.result ? 'VÁLIDA ✅' : 'INVÁLIDA ❌ (0 pts)'}`, challenge.result ? 'success' : 'error');
+  });
+
+  socket.on('validation_reveal_phase', ({ answers, initialScores, finalScores, challenges, players, categories, letter }) => {
+    hideVoteModal();
+    showScreen('validationReveal');
+    document.getElementById('val-letter').textContent = letter;
+    renderValidationRevealGrid(answers, initialScores, finalScores, challenges, players, categories);
+    updateValidationReadyStatus([]);
   });
 
   socket.on('validation_ready_update', ({ readyPlayers }) => {
@@ -631,9 +647,100 @@ function sendMyAnswers() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// VALIDATION GRID & CHALLENGES
+// ANONYMOUS CATEGORY VALIDATION & REVEAL GRID
 // ────────────────────────────────────────────────────────────────
-function renderValidationGrid(answers, initialScores, players, categories) {
+let currentCategoryStepData = null;
+
+function renderAnonymousCategoryStep(data) {
+  currentCategoryStepData = data;
+  showScreen('validation');
+
+  document.getElementById('val-cat-step-num').textContent = `Categoría ${data.categoryIndex + 1} de ${data.totalCategories}`;
+  document.getElementById('val-cat-title').textContent = data.categoryLabel.toUpperCase();
+  document.getElementById('val-cat-sub').textContent = 'Toca cualquier respuesta sospechosa para impugnarla (Anónimo)';
+
+  // Reset timer bar
+  const bar = document.getElementById('cat-timer-bar');
+  if (bar) bar.style.width = '100%';
+
+  // Hide vote tracker
+  document.getElementById('val-vote-tracker').style.display = 'none';
+
+  // Render cards
+  const container = document.getElementById('anon-cards-wrap');
+  if (!container) return;
+
+  container.innerHTML = '';
+  data.cards.forEach(card => {
+    const cardEl = document.createElement('div');
+    cardEl.className = 'anon-card';
+    cardEl.id = `card-${card.cardId}`;
+    cardEl.dataset.targetId = card.targetPlayerId;
+    cardEl.dataset.category = data.categoryKey;
+    cardEl.dataset.word = card.word;
+
+    cardEl.innerHTML = `
+      <div class="ac-word">${escapeHtml(card.word)}</div>
+      <div class="ac-status">${card.hasWord && card.word !== '—' ? 'Respuesta enviada' : 'Sin respuesta'}</div>
+    `;
+
+    if (card.hasWord && card.word !== '—') {
+      const isMine = card.targetPlayerId === socket.id;
+      if (!isMine) {
+        cardEl.addEventListener('click', () => {
+          openReasonModal(card.targetPlayerId, 'Jugador Anónimo', data.categoryKey, card.word);
+        });
+      }
+    }
+
+    container.appendChild(cardEl);
+  });
+}
+
+function updateCategoryTimerBar(secondsLeft, total = 10) {
+  const bar = document.getElementById('cat-timer-bar');
+  if (bar) {
+    const pct = Math.max(0, (secondsLeft / total) * 100);
+    bar.style.width = `${pct}%`;
+  }
+}
+
+function updateVoteTrackerDots(votedCount, totalVoters) {
+  const tracker = document.getElementById('val-vote-tracker');
+  const container = document.getElementById('vtr-dots');
+  if (!tracker || !container) return;
+
+  tracker.style.display = 'flex';
+  container.innerHTML = '';
+
+  for (let i = 0; i < totalVoters; i++) {
+    const dot = document.createElement('div');
+    dot.className = `vtr-dot ${i < votedCount ? 'active' : ''}`;
+    container.appendChild(dot);
+  }
+}
+
+function highlightChallengedCard(targetPlayerId, categoryKey) {
+  const cards = document.querySelectorAll('.anon-card');
+  cards.forEach(card => {
+    if (card.dataset.targetId === targetPlayerId) {
+      card.classList.add('challenged');
+      card.classList.remove('dimmed');
+    } else {
+      card.classList.add('dimmed');
+      card.classList.remove('challenged');
+    }
+  });
+}
+
+function resetChallengedCards() {
+  const cards = document.querySelectorAll('.anon-card');
+  cards.forEach(card => {
+    card.classList.remove('challenged', 'dimmed');
+  });
+}
+
+function renderValidationRevealGrid(answers, initialScores, finalScores, challenges, players, categories) {
   const container = document.getElementById('ans-grid');
   if (!container) return;
 
@@ -644,7 +751,6 @@ function renderValidationGrid(answers, initialScores, players, categories) {
     return 0;
   });
 
-  const colCount = sortedPlayers.length + 1;
   container.style.gridTemplateColumns = `125px repeat(${sortedPlayers.length}, minmax(115px, 1fr))`;
   container.innerHTML = '';
 
@@ -673,10 +779,11 @@ function renderValidationGrid(answers, initialScores, players, categories) {
       const cell = document.createElement('div');
       const isOwn = p.id === socket.id;
       const word = ((answers[p.id] || {})[cat.key] || '').trim();
-      const score = ((initialScores[p.id] || {})[cat.key]) || 0;
+      const scoreObj = finalScores[p.id] || {};
+      const score = scoreObj[cat.key] !== undefined ? scoreObj[cat.key] : (((initialScores[p.id] || {})[cat.key]) || 0);
 
       // Check if this word was challenged
-      const ch = (currentValidationChallenges || []).find(
+      const ch = (challenges || []).find(
         c => c.targetPlayerId === p.id && c.category === cat.key
       );
 
@@ -685,10 +792,7 @@ function renderValidationGrid(answers, initialScores, players, categories) {
       let cellStatusClass = '';
 
       if (ch) {
-        if (!ch.resolved) {
-          cellStatusClass = 'challenged';
-          scoreText = '⚖️ En votación';
-        } else if (ch.result === false) {
+        if (ch.result === false) {
           cellStatusClass = 'invalidated';
           scoreText = '❌ 0 pts';
         } else if (ch.result === true) {
@@ -697,21 +801,11 @@ function renderValidationGrid(answers, initialScores, players, categories) {
         }
       }
 
-      cell.className = `gc ${isOwn ? 'own' : (ch ? '' : 'canch')} ${cellStatusClass}`;
-      cell.dataset.targetId = p.id;
-      cell.dataset.category = cat.key;
-      cell.id = `cell-${p.id}-${cat.key}`;
-
+      cell.className = `gc ${isOwn ? 'own' : ''} ${cellStatusClass}`;
       cell.innerHTML = `
         <div class="gc-word">${escapeHtml(word || '—')}</div>
         <div class="gc-score ${scoreClass}">${scoreText}</div>
       `;
-
-      if (!isOwn && word && !ch) {
-        cell.addEventListener('click', () => {
-          openReasonModal(p.id, p.name, cat.key, word);
-        });
-      }
 
       container.appendChild(cell);
     });

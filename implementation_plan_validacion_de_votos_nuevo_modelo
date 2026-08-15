@@ -1,0 +1,87 @@
+# Plan de Implementación — Validación Secuencial Anónima por Categorías
+
+Entendí perfectamente tu propuesta. El diseño anónimo por categorías resuelve de forma brillante los dos problemas humanos principales: la sobrecarga cognitiva (analizar 60 palabras a la vez) y las alianzas entre jugadores para perjudicar a otros.
+
+---
+
+## 🎯 Resumen del Nuevo Flujo de Validación
+
+```mermaid
+flowchart TD
+    A[Fin de Ronda de Juego] --> B[Fase 1: Validación Secuencial Anónima por Categoría]
+    B --> C[Categoría 1: Nombre]
+    C -->|Timer 10s o Impugnación| D{¿Alguien impugna?}
+    D -- Sí --> E[Votación Anónima 10s: Votos iluminados sin nombres]
+    E --> F[Fin Votación: Palabra Válida o Inválida 0 pts]
+    F --> G[Siguiente Categoría]
+    D -- No / Timer 10s --> G
+    G -->|Repetir para las 7 categorías| H[Fase 2: Revelación Grid Completo con Nombres]
+    H -->|Ver respuestas, reírse, 30s o todos Listos| I[Siguiente Ronda o Fin de Juego]
+```
+
+---
+
+## 🛠️ Detalle Técnico de los Cambios
+
+### 1. Servidor (`server/gameManager.js` y `server/index.js`)
+
+- **Estado de Validación por Categoría (`validating_category`)**:
+  - Se mantiene un índice `currentCategoryIndex` (0 a 6).
+  - Para cada categoría, el servidor emite un evento `category_validation_step` enviando **únicamente las respuestas de esa categoría**, de forma **anónima** (sin incluir `playerId` ni `playerName`, solo los textos de las respuestas y un `wordId` temporal).
+- **Timer de Categoría (10 segundos)**:
+  - Cada categoría tiene 10 segundos para que los jugadores lean las palabras.
+  - Si nadie impugna una palabra y el timer llega a 0, se aprueban las respuestas de esa categoría y se pasa automáticamente a la siguiente.
+- **Impugnación y Votación Anónima**:
+  - Al impugnar una palabra de la categoría actual, se detiene el timer de la categoría y comienza el timer de votación (10s).
+  - El jugador que impugna cuenta automáticamente como **❌ Inválido**.
+  - El dueño de la palabra **no vota**.
+  - El servidor emite `vote_progress` informando solo el número total de votos emitidos (ej: `votedCount: 3, totalEligible: 4`), permitiendo que el cliente ilumine los recuadros de votos **sin revelar quién votó qué**.
+- **Fase de Revelación Grid Completo (`validation_reveal`)**:
+  - Una vez validadas las 7 categorías y calculados todos los puntos, el servidor emite el estado `validation_reveal` con las respuestas identificadas por jugador y los puntajes finales.
+  - En esta pantalla **ya no se puede votar**; incluye el botón **✅ Listo** y un timer de inactividad de **30 segundos** antes de pasar a los resultados de la ronda.
+
+---
+
+### 2. Cliente y UI (`public/index.html`, `public/style.css`, `public/app.js`)
+
+- **Pantalla de Validación Anónima por Categoría**:
+  - **Encabezado**: Título grande de la Categoría actual (ej: `Categoría: ANIMAL`) y barra de progreso decreciente de 10 segundos.
+  - **Tarjetas Anónimas**: Grid/Flexbox con las tarjetas de respuestas. Ninguna tarjeta muestra el nombre del jugador.
+  - **Efecto de Impugnación**: Al tocar una tarjeta, esta se resalta en amarillo/naranja con un borde brillante y las demás tarjetas se atenúan (`opacity: 0.35`).
+  - **Indicadores de Votación Anónima**: Una fila de iconos/casillas neutras (ej: `⬜ ⬜ ⬜ ⬜ ⬜`). A medida que cada jugador vota, la casilla se ilumina (`🟩` / `🟦`).
+- **Pantalla de Revelación Grid Completo**:
+  - Es el Grid de matriz que tenemos actualmente (con la columna del jugador de primera), donde se muestran las palabras con sus autores, puntajes y marcas de válidas/invalidadas.
+  - Sirve únicamente de resumen visual y social para comentar la ronda.
+
+---
+
+## 📋 Archivos a Modificar
+
+#### [MODIFY] [server/gameManager.js](file:///c%3A/Users/I5/Documents/CODIGO/stop/server/gameManager.js)
+- Agregar generador de payload anónimo por categoría `publicCategoryStep(room, categoryIndex)`.
+- Ajustar cálculo de votos anónimos y flujo de categorías.
+
+#### [MODIFY] [server/index.js](file:///c%3A/Users/I5/Documents/CODIGO/stop/server/index.js)
+- Manejar la máquina de estados de validación por categoría (pasar de categoría 0 a 6, votaciones anónimas y transición al grid de revelación).
+
+#### [MODIFY] [public/index.html](file:///c%3A/Users/I5/Documents/CODIGO/stop/public/index.html)
+- Diseñar la nueva pantalla de validación por categoría (título, barra decreciente, tarjetas anónimas e indicadores de votos).
+- Mantener la pantalla del Grid para la fase final de revelación.
+
+#### [MODIFY] [public/style.css](file:///c%3A/Users/I5/Documents/CODIGO/stop/public/style.css)
+- Estilos para la barra decreciente de timer, tarjetas anónimas, atenuación de tarjetas no seleccionadas e indicadores de votos anónimos.
+
+#### [MODIFY] [public/app.js](file:///c%3A/Users/I5/Documents/CODIGO/stop/public/app.js)
+- Lógica del cliente para renderizar la validación categoría por categoría, manejar selecciones anónimas y mostrar el grid de revelación al final.
+
+---
+
+## 🧪 Plan de Verificación
+
+1. **Prueba local multijugador (2 pestañas de navegador)**:
+   - Iniciar partida y responder preguntas.
+   - Comprobar que la primera categoría aparece sin nombres de jugadores.
+   - Probar que al seleccionar una palabra se atenúan las demás y aparecen los indicadores de voto anónimos.
+   - Comprobar que la votación avanza automáticamente a la siguiente categoría.
+   - Verificar que al finalizar la 7ma categoría se revela el Grid completo con nombres y puntajes finales.
+2. **Deploy en Render y commit a GitHub**.
