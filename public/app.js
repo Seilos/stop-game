@@ -57,9 +57,9 @@ function showScreen(name) {
   Object.keys(screens).forEach(key => {
     if (screens[key]) screens[key].classList.toggle('active', key === name);
   });
-  // Show comm-bar on any game/room screen
-  const bar = document.getElementById('comm-bar');
-  if (bar) bar.style.display = GAME_SCREENS.has(name) ? 'flex' : 'none';
+  // Show comm-widget on any game/room screen
+  const widget = document.getElementById('comm-widget');
+  if (widget) widget.style.display = GAME_SCREENS.has(name) ? 'block' : 'none';
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -116,8 +116,10 @@ function setupSocketListeners() {
     appendChatMessage(senderId, senderName, text);
     if (!chatOpen) {
       chatUnread++;
-      const badge = document.getElementById('chat-unread-badge');
-      if (badge) { badge.textContent = chatUnread; badge.style.display = 'inline'; }
+      ['chat-unread-badge', 'comm-bubble-badge'].forEach(id => {
+        const badge = document.getElementById(id);
+        if (badge) { badge.textContent = chatUnread; badge.style.display = 'inline'; }
+      });
     }
   });
 
@@ -571,6 +573,9 @@ function setupUIEventListeners() {
       pttBtn.classList.remove('ptt-active');
     }
   });
+
+  // ── Comm-bar: Collapse & Drag ──
+  setupDraggableCommWidget();
 
   // ── Comm-bar: Chat ──
   document.getElementById('btn-toggle-chat').addEventListener('click', toggleChat);
@@ -1522,8 +1527,10 @@ function toggleChat(force) {
 
   if (chatOpen) {
     chatUnread = 0;
-    const badge = document.getElementById('chat-unread-badge');
-    if (badge) badge.style.display = 'none';
+    ['chat-unread-badge', 'comm-bubble-badge'].forEach(id => {
+      const badge = document.getElementById(id);
+      if (badge) badge.style.display = 'none';
+    });
     // Scroll to bottom
     const msgs = document.getElementById('chat-messages');
     if (msgs) msgs.scrollTop = msgs.scrollHeight;
@@ -1567,4 +1574,106 @@ function playerColor(id) {
   const h = Math.abs(hash) % 360;
   return `hsl(${h}, 70%, 65%)`;
 }
+
+// ────────────────────────────────────────────────────────────────
+// DRAGGABLE & COLLAPSIBLE COMM WIDGET
+// ────────────────────────────────────────────────────────────────
+let commCollapsed = false;
+
+function setupDraggableCommWidget() {
+  const widget = document.getElementById('comm-widget');
+  const bar = document.getElementById('comm-bar');
+  const bubble = document.getElementById('comm-bubble');
+  const collapseBtn = document.getElementById('btn-collapse-comm');
+  const dragHandle = document.getElementById('comm-drag-handle');
+
+  if (!widget || !bar || !bubble) return;
+
+  // Restore saved position if present
+  const savedPos = localStorage.getItem('stop_comm_pos');
+  if (savedPos) {
+    try {
+      const { left, top } = JSON.parse(savedPos);
+      widget.style.right = 'auto';
+      widget.style.bottom = 'auto';
+      widget.style.left = `${Math.min(Math.max(0, left), window.innerWidth - 60)}px`;
+      widget.style.top = `${Math.min(Math.max(0, top), window.innerHeight - 60)}px`;
+    } catch(e) {}
+  }
+
+  // Toggle collapse/expand
+  const setCollapsed = (collapsed) => {
+    commCollapsed = collapsed;
+    if (collapsed) {
+      bar.style.display = 'none';
+      bubble.style.display = 'flex';
+    } else {
+      bar.style.display = 'flex';
+      bubble.style.display = 'none';
+    }
+  };
+
+  if (collapseBtn) collapseBtn.addEventListener('click', () => setCollapsed(true));
+  if (bubble) bubble.addEventListener('click', () => setCollapsed(false));
+
+  // Make widget draggable by handle or bubble
+  let isDragging = false;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  const startDrag = (e) => {
+    // Only drag on handle or bubble
+    const isHandle = dragHandle && dragHandle.contains(e.target);
+    const isBub = bubble && bubble.contains(e.target) && commCollapsed;
+    if (!isHandle && !isBub) return;
+
+    isDragging = true;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    const rect = widget.getBoundingClientRect();
+    offsetX = clientX - rect.left;
+    offsetY = clientY - rect.top;
+
+    e.preventDefault();
+  };
+
+  const moveDrag = (e) => {
+    if (!isDragging) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    let newX = clientX - offsetX;
+    let newY = clientY - offsetY;
+
+    // Bounds checking
+    const maxX = window.innerWidth - widget.offsetWidth;
+    const maxY = window.innerHeight - widget.offsetHeight;
+    newX = Math.max(10, Math.min(newX, maxX - 10));
+    newY = Math.max(10, Math.min(newY, maxY - 10));
+
+    widget.style.right = 'auto';
+    widget.style.bottom = 'auto';
+    widget.style.left = `${newX}px`;
+    widget.style.top = `${newY}px`;
+  };
+
+  const endDrag = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    const rect = widget.getBoundingClientRect();
+    localStorage.setItem('stop_comm_pos', JSON.stringify({ left: rect.left, top: rect.top }));
+  };
+
+  // Mouse events
+  widget.addEventListener('mousedown', startDrag);
+  window.addEventListener('mousemove', moveDrag);
+  window.addEventListener('mouseup', endDrag);
+
+  // Touch events for mobile
+  widget.addEventListener('touchstart', startDrag, { passive: false });
+  window.addEventListener('touchmove', moveDrag, { passive: false });
+  window.addEventListener('touchend', endDrag);
+}
+
 

@@ -624,14 +624,38 @@ input[type="text"]:focus{
 .ctype-badge.INVALID,.ctype-badge.OFF_CATEGORY,.ctype-badge.NOT_A_NAME{background:rgba(239,68,68,.18);color:#fca5a5;border:1px solid rgba(239,68,68,.35)}
 .ctype-badge.DISGUISED{background:rgba(245,158,11,.18);color:var(--warn);border:1px solid rgba(245,158,11,.35)}
 
-/* ═══════════════ COMMUNICATION BAR ═══════════════ */
-#comm-bar {
+/* ═══════════════ COMMUNICATION WIDGET (DRAGGABLE & COLLAPSIBLE) ═══════════════ */
+#comm-widget {
   position: fixed; bottom: 15px; right: 15px; z-index: 1000;
-  display: flex; align-items: center; gap: 8px;
-  background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 30px;
-  padding: 6px 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  touch-action: none; user-select: none;
 }
+
+.comm-bubble {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: var(--bg3); border: 2px solid var(--primary);
+  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.4);
+  color: #fff; font-size: 1.3rem; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease; position: relative;
+}
+.comm-bubble:hover { transform: scale(1.1); box-shadow: 0 10px 30px rgba(124, 58, 237, 0.6); }
+.comm-bubble.speaking { border-color: #10b981; box-shadow: 0 0 16px #10b981; }
+
+.comm-bar {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 30px;
+  padding: 6px 10px 6px 12px; box-shadow: 0 10px 36px rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.2s ease; max-width: calc(100vw - 30px); flex-wrap: wrap;
+}
+
+.comm-drag-handle {
+  cursor: move; cursor: grab; font-size: 1.1rem; color: var(--txt3);
+  padding: 0 4px; font-weight: 900; letter-spacing: -2px; opacity: 0.7; transition: opacity 0.2s ease;
+}
+.comm-drag-handle:hover { opacity: 1; color: var(--txt2); }
+.comm-drag-handle:active { cursor: grabbing; }
+
+.icon-only-btn { padding: 4px 8px; font-size: 0.75rem; border-radius: 50%; min-width: 28px; height: 28px; }
 
 .comm-btn {
   background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15);

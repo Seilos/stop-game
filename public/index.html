@@ -320,28 +320,42 @@
 <!-- ═══════════════ TOASTS ═══════════════ -->
 <div id="toasts" aria-live="polite"></div>
 
-<!-- ═══════════════ COMMUNICATION BAR ═══════════════ -->
-<div id="comm-bar" style="display:none">
-  <!-- Voice section -->
-  <div id="comm-voice">
-    <div id="voice-idle">
-      <button id="btn-join-voice" class="comm-btn" title="Unirse a voz">🎤 Voz</button>
-    </div>
-    <div id="voice-active" style="display:none">
-      <button id="btn-mic-open" class="comm-btn mic-btn" data-mode="open" title="Micrófono abierto">🔊</button>
-      <button id="btn-mic-ptt"  class="comm-btn mic-btn" data-mode="ptt"  title="Pulsar para hablar">👆 PTT</button>
-      <button id="btn-mic-mute" class="comm-btn mic-btn active-mode" data-mode="muted" title="Silenciado">🔇</button>
-      <button id="btn-leave-voice" class="comm-btn danger-btn" title="Salir de voz">📵</button>
-    </div>
-  </div>
-
-  <!-- Voice participants -->
-  <div id="voice-participants"></div>
-
-  <!-- Chat toggle -->
-  <button id="btn-toggle-chat" class="comm-btn chat-btn" title="Chat de texto">
-    💬 <span id="chat-unread-badge" class="unread-badge" style="display:none">0</span>
+<!-- ═══════════════ COMMUNICATION WIDGET (DRAGGABLE & COLLAPSIBLE) ═══════════════ -->
+<div id="comm-widget" style="display:none">
+  <!-- Collapsed floating bubble -->
+  <button id="comm-bubble" class="comm-bubble" style="display:none" title="Abrir controles de voz/chat">
+    <span id="comm-bubble-icon">🎤</span>
+    <span id="comm-bubble-badge" class="unread-badge" style="display:none">0</span>
   </button>
+
+  <!-- Expanded bar -->
+  <div id="comm-bar" class="comm-bar">
+    <div id="comm-drag-handle" class="comm-drag-handle" title="Mantén presionado para mover">⋮⋮</div>
+    
+    <!-- Voice section -->
+    <div id="comm-voice">
+      <div id="voice-idle">
+        <button id="btn-join-voice" class="comm-btn" title="Unirse a voz">🎤 Voz</button>
+      </div>
+      <div id="voice-active" style="display:none">
+        <button id="btn-mic-open" class="comm-btn mic-btn" data-mode="open" title="Micrófono abierto">🔊</button>
+        <button id="btn-mic-ptt"  class="comm-btn mic-btn" data-mode="ptt"  title="Pulsar para hablar">👆 PTT</button>
+        <button id="btn-mic-mute" class="comm-btn mic-btn active-mode" data-mode="muted" title="Silenciado">🔇</button>
+        <button id="btn-leave-voice" class="comm-btn danger-btn" title="Salir de voz">📵</button>
+      </div>
+    </div>
+
+    <!-- Voice participants -->
+    <div id="voice-participants"></div>
+
+    <!-- Chat toggle -->
+    <button id="btn-toggle-chat" class="comm-btn chat-btn" title="Chat de texto">
+      💬 <span id="chat-unread-badge" class="unread-badge" style="display:none">0</span>
+    </button>
+
+    <!-- Collapse button -->
+    <button id="btn-collapse-comm" class="comm-btn icon-only-btn" title="Minimizar a burbuja">➖</button>
+  </div>
 </div>
 
 <!-- ═══════════════ CHAT PANEL ═══════════════ -->
